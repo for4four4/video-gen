@@ -2,92 +2,52 @@ import axios from 'axios';
 import pool from '../db';
 import { getModelConfig } from '../config/models';
 
-const POLZA_API_BASE_URL = process.env.POLZA_API_BASE_URL || 'https://polza.ai/api';
+const POLZA_API_BASE_URL = (process.env.POLZA_API_BASE_URL || 'https://polza.ai/api').trim();
 const POLZA_API_KEY = process.env.POLZA_API_KEY;
 
 // Кэш коэффициентов моделей
 let modelCoefficientsCache: Map<string, number> = new Map();
-let cacheTimestamp: number = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5 минут
 
 // Получить коэффициент для модели
 export const getModelCoefficient = async (modelSlug: string): Promise<number> => {
-  // Проверяем кэш
   if (modelCoefficientsCache.has(modelSlug)) {
     const cachedCoeff = modelCoefficientsCache.get(modelSlug);
-    if (cachedCoeff !== undefined) {
-      return cachedCoeff;
-    }
+    if (cachedCoeff !== undefined) return cachedCoeff;
   }
 
-  // Получаем из БД
   try {
     const result = await pool.query(
       'SELECT coefficient FROM model_coefficients WHERE slug = $1',
       [modelSlug]
     );
-
     if (result.rows.length > 0) {
       const coeff = parseFloat(result.rows[0].coefficient);
       modelCoefficientsCache.set(modelSlug, coeff);
       return coeff;
     }
   } catch (error) {
-    console.error('Error fetching coefficient for model:', modelSlug, error);
+    console.error('Error fetching coefficient:', error);
   }
-
-  // Если модели нет в БД, возвращаем дефолтный коэффициент 1.5
   return 1.5;
 };
 
-// Очистить кэш коэффициентов (вызывать при обновлении в админке)
-export const clearCoefficientsCache = () => {
-  modelCoefficientsCache.clear();
-  cacheTimestamp = 0;
-};
+export const clearCoefficientsCache = () => modelCoefficientsCache.clear();
 
-// Получить баланс пользователя из БД
 export const getUserBalance = async (userId: string): Promise<number> => {
-  const result = await pool.query(
-    'SELECT points_balance FROM users WHERE id = $1',
-    [userId]
-  );
-
-  if (result.rows.length === 0) {
-    throw new Error('User not found');
-  }
-
+  const result = await pool.query('SELECT points_balance FROM users WHERE id = $1', [userId]);
+  if (result.rows.length === 0) throw new Error('User not found');
   return parseInt(result.rows[0].points_balance);
 };
 
-// Списать баллы у пользователя
 export const deductUserBalance = async (userId: string, amount: number): Promise<void> => {
   const client = await pool.connect();
-  
   try {
     await client.query('BEGIN');
-    
-    // Проверка баланса
-    const balanceResult = await client.query(
-      'SELECT points_balance FROM users WHERE id = $1 FOR UPDATE',
-      [userId]
-    );
-
-    if (balanceResult.rows.length === 0) {
-      throw new Error('User not found');
-    }
-
+    const balanceResult = await client.query('SELECT points_balance FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    if (balanceResult.rows.length === 0) throw new Error('User not found');
     const currentBalance = parseInt(balanceResult.rows[0].points_balance);
-    if (currentBalance < amount) {
-      throw new Error('Insufficient balance');
-    }
-
-    // Списание
-    await client.query(
-      'UPDATE users SET points_balance = points_balance - $1, total_spent_rub = total_spent_rub + $2 WHERE id = $3',
-      [amount, amount, userId] // Упрощенно: 1 поинт = 1 рубль
-    );
-
+    if (currentBalance < amount) throw new Error('Insufficient balance');
+    await client.query('UPDATE users SET points_balance = points_balance - $1, total_spent_rub = total_spent_rub + $2 WHERE id = $3', [amount, amount, userId]);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
@@ -97,252 +57,131 @@ export const deductUserBalance = async (userId: string, amount: number): Promise
   }
 };
 
-// Синхронизировать модели из polza.ai (только image и video)
-export const syncModelsFromPolza = async (): Promise<number> => {
-  try {
-    // Формируем URL вручную для корректной передачи массива type
-    const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
-    const queryParams = new URLSearchParams();
+// Функция ожидания завершения генерации (Polling)
+async function waitForGeneration(taskId: string, type: 'image' | 'video' = 'image'): Promise<string> {
+  const maxAttempts = type === 'image' ? 200 : 120; // До 10 мин для фото, 10 мин для видео
+  const interval = type === 'image' ? 3000 : 5000; // 3 сек или 5 сек
+  
+  console.log(`[Polza] Starting polling for task ${taskId}...`);
+
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(resolve => setTimeout(resolve, interval));
     
-    // Добавляем каждый тип как отдельный параметр
-    queryParams.append('type', 'image');
-    queryParams.append('type', 'video');
-    queryParams.append('limit', '500');
-    
-    const url = `${baseUrl}?${queryParams.toString()}`;
-    
-    const response = await axios.get(url, {
-      headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
-    });
+    try {
+      const response = await axios.get(`${POLZA_API_BASE_URL}/v1/media/${taskId}`, {
+        headers: { 'Authorization': `Bearer ${POLZA_API_KEY}` }
+      });
+      
+      const status = response.data.status;
+      console.log(`[Polza] Task ${taskId} status: ${status}`);
 
-    const models = response.data.data || [];
-    let updatedCount = 0;
-
-    for (const model of models) {
-      const type = mapModelType(model.type);
-      if (!type) continue; // Пропускаем неподдерживаемые типы
-
-      // Получаем цену из top_provider.pricing
-      const pricing = model.top_provider?.pricing || {};
-      let basePriceUsd = 0;
-
-      // Конвертируем RUB в USD (условно 1 USD = 90 RUB)
-      if (pricing.prompt_per_million) {
-        basePriceUsd = parseFloat(pricing.prompt_per_million) / 90;
-      } else if (pricing.request_per_thousand) {
-        basePriceUsd = parseFloat(pricing.request_per_thousand) / 90;
-      } else if (pricing.video_per_second) {
-        basePriceUsd = parseFloat(pricing.video_per_second) / 90;
+      if (status === 'completed') {
+        const url = response.data.data?.url;
+        if (!url) throw new Error('No URL in completed response');
+        console.log(`[Polza] Task ${taskId} completed! URL: ${url}`);
+        return url;
       }
-
-      // Вставляем или обновляем модель
-      await pool.query(`
-        INSERT INTO model_coefficients (slug, name, vendor, type, base_price_usd, coefficient, enabled)
-        VALUES ($1, $2, $3, $4, $5, 1.5, TRUE)
-        ON CONFLICT (slug) DO UPDATE SET 
-          name = EXCLUDED.name,
-          vendor = EXCLUDED.vendor,
-          type = EXCLUDED.type,
-          base_price_usd = EXCLUDED.base_price_usd,
-          updated_at = CURRENT_TIMESTAMP
-      `, [model.id, model.name, extractVendor(model.id), type, basePriceUsd]);
-
-      updatedCount++;
+      
+      if (status === 'failed') {
+        const errorMsg = response.data.error?.message || 'Generation failed';
+        console.error(`[Polza] Task ${taskId} failed: ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        console.warn(`[Polza] Task ${taskId} not found yet, retrying...`);
+      } else {
+        throw error;
+      }
     }
-
-    // Очищаем кэш коэффициентов после синхронизации
-    clearCoefficientsCache();
-
-    return updatedCount;
-  } catch (error) {
-    console.error('Error syncing models from polza.ai:', error);
-    throw error;
   }
-};
+  throw new Error('Generation timeout exceeded');
+}
 
-// Получить модели из polza.ai с фильтрацией (только image и video)
-export const getModelsCatalog = async (params?: {
-  search?: string;
-  type?: string[];
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-}) => {
-  try {
-    // Формируем URL вручную для корректной передачи массива type
-    const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
-    const queryParams = new URLSearchParams();
-    
-    if (params?.search) queryParams.append('search', params.search);
-    
-    // Добавляем каждый тип как отдельный параметр
-    const types = params?.type || ['image', 'video'];
-    types.forEach(type => queryParams.append('type', type));
-    
-    queryParams.append('page', String(params?.page || 1));
-    queryParams.append('limit', String(params?.limit || 50));
-    
-    if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
-    if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder);
-    
-    const url = `${baseUrl}?${queryParams.toString()}`;
-    
-    const response = await axios.get(url, {
-      headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
-    });
-
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching models catalog:', error);
-    throw error;
-  }
-};
-
-// Отправить сообщение в чат
-export const sendChatMessage = async (options: {
-  model: string;
-  messages: Array<{ role: string; content: string }>;
-  temperature?: number;
-  max_tokens?: number;
-}): Promise<any> => {
-  try {
-    const response = await axios.post(
-      `${POLZA_API_BASE_URL}/v1/chat/completions`,
-      {
-        model: options.model,
-        messages: options.messages,
-        temperature: options.temperature ?? 0.7,
-        max_tokens: options.max_tokens ?? 2048,
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {}),
-        },
-      }
-    );
-
-    return response.data;
-  } catch (error: any) {
-    console.error('Error sending chat message:', error.response?.data || error.message);
-    throw error;
-  }
-};
-
-// Сгенерировать изображение
 export const generateImage = async (options: {
   model: string;
   prompt: string;
   negativePrompt?: string;
-  size?: string;
-  n?: number;
   aspect_ratio?: string;
   image_resolution?: string;
   quality?: string;
   seed?: number;
-  guidance_scale?: number;
-  enable_safety_checker?: boolean;
-  output_format?: string;
-  upscale_factor?: number;
-  fixed_lens?: boolean;
-  generate_audio?: boolean;
-}): Promise<any> => {
-  try {
-    // Получаем конфигурацию модели для применения значений по умолчанию
-    const modelConfig = getModelConfig(options.model);
-    
-    const requestBody: any = {
-      model: options.model,
+  n?: number;
+}): Promise<{ url: string }> => {
+  const modelConfig = getModelConfig(options.model);
+  
+  const payload: any = {
+    model: options.model,
+    input: {
       prompt: options.prompt,
-    };
+      aspect_ratio: options.aspect_ratio || modelConfig?.defaults?.aspect_ratio || '1:1',
+      image_resolution: options.image_resolution || modelConfig?.defaults?.image_resolution,
+      quality: options.quality || modelConfig?.defaults?.quality,
+      seed: options.seed ?? modelConfig?.defaults?.seed,
+      max_images: options.n || modelConfig?.defaults?.images || 1,
+    },
+    async: true // Важно: включаем асинхронный режим
+  };
 
-    // Добавляем опциональные параметры: используем переданные значения или дефолтные из конфига
-    if (options.negativePrompt) requestBody.negative_prompt = options.negativePrompt;
-    if (options.size) requestBody.size = options.size;
-    if (options.n !== undefined) requestBody.n = options.n;
-    else if (modelConfig?.defaults?.images) requestBody.n = modelConfig.defaults.images;
-    
-    if (options.aspect_ratio) requestBody.aspect_ratio = options.aspect_ratio;
-    else if (modelConfig?.defaults?.aspect_ratio) requestBody.aspect_ratio = modelConfig.defaults.aspect_ratio;
-    
-    if (options.image_resolution) requestBody.image_resolution = options.image_resolution;
-    else if (modelConfig?.defaults?.image_resolution) requestBody.image_resolution = modelConfig.defaults.image_resolution;
-    
-    if (options.quality) requestBody.quality = options.quality;
-    else if (modelConfig?.defaults?.quality) requestBody.quality = modelConfig.defaults.quality;
-    
-    if (options.seed !== undefined) requestBody.seed = options.seed;
-    else if (modelConfig?.defaults?.seed !== undefined) requestBody.seed = modelConfig.defaults.seed;
-    
-    if (options.guidance_scale !== undefined) requestBody.guidance_scale = options.guidance_scale;
-    else if (modelConfig?.defaults?.guidance_scale !== undefined) requestBody.guidance_scale = modelConfig.defaults.guidance_scale;
-    
-    if (options.enable_safety_checker !== undefined) requestBody.enable_safety_checker = options.enable_safety_checker;
-    else if (modelConfig?.defaults?.enable_safety_checker !== undefined) requestBody.enable_safety_checker = modelConfig.defaults.enable_safety_checker;
-    
-    if (options.output_format) requestBody.output_format = options.output_format;
-    else if (modelConfig?.defaults?.output_format) requestBody.output_format = modelConfig.defaults.output_format;
-    
-    if (options.upscale_factor) requestBody.upscale_factor = options.upscale_factor;
-    else if (modelConfig?.defaults?.upscale_factor) requestBody.upscale_factor = modelConfig.defaults.upscale_factor;
-    
-    if (options.fixed_lens !== undefined) requestBody.fixed_lens = options.fixed_lens;
-    else if (modelConfig?.defaults?.fixed_lens !== undefined) requestBody.fixed_lens = modelConfig.defaults.fixed_lens;
-    
-    if (options.generate_audio !== undefined) requestBody.generate_audio = options.generate_audio;
-    else if (modelConfig?.defaults?.generate_audio !== undefined) requestBody.generate_audio = modelConfig.defaults.generate_audio;
+  if (options.negativePrompt) payload.input.negative_prompt = options.negativePrompt;
 
-    const response = await axios.post(
-      `${POLZA_API_BASE_URL}/v1/images/generations`,
-      requestBody,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {}),
-        },
-      }
-    );
+  console.log(`[Polza] Requesting image generation for model: ${options.model}`);
+  
+  // 1. Запускаем генерацию
+  const startResponse = await axios.post(`${POLZA_API_BASE_URL}/v1/media`, payload, {
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${POLZA_API_KEY}` 
+    }
+  });
 
-    return response.data;
-  } catch (error: any) {
-    console.error('Error generating image:', error.response?.data || error.message);
-    throw error;
-  }
+  const taskId = startResponse.data.id;
+  if (!taskId) throw new Error('No task ID returned from Polza');
+  console.log(`[Polza] Generation started, task ID: ${taskId}`);
+
+  // 2. Ждем завершения (Polling)
+  const imageUrl = await waitForGeneration(taskId, 'image');
+  
+  return { url: imageUrl };
 };
 
-// Сгенерировать видео
 export const generateVideo = async (options: {
   model: string;
   prompt: string;
   duration?: number;
   resolution?: string;
-}): Promise<any> => {
-  try {
-    const response = await axios.post(
-      `${POLZA_API_BASE_URL}/v1/videos/generations`,
-      {
-        model: options.model,
-        prompt: options.prompt,
-        duration: options.duration || 5,
-        resolution: options.resolution || '720p',
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {}),
-        },
-      }
-    );
+  aspect_ratio?: string;
+}): Promise<{ url: string }> => {
+  const modelConfig = getModelConfig(options.model);
 
-    return response.data;
-  } catch (error: any) {
-    console.error('Error generating video:', error.response?.data || error.message);
-    throw error;
-  }
+  const payload: any = {
+    model: options.model,
+    input: {
+      prompt: options.prompt,
+      duration: options.duration ? `${options.duration}s` : (modelConfig?.defaults?.duration || '10s'),
+      resolution: options.resolution || modelConfig?.defaults?.resolution,
+      aspect_ratio: options.aspect_ratio || modelConfig?.defaults?.aspect_ratio,
+    },
+    async: true
+  };
+
+  console.log(`[Polza] Requesting video generation for model: ${options.model}`);
+
+  const startResponse = await axios.post(`${POLZA_API_BASE_URL}/v1/media`, payload, {
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${POLZA_API_KEY}` 
+    }
+  });
+
+  const taskId = startResponse.data.id;
+  if (!taskId) throw new Error('No task ID returned from Polza');
+  console.log(`[Polza] Video generation started, task ID: ${taskId}`);
+
+  const videoUrl = await waitForGeneration(taskId, 'video');
+  return { url: videoUrl };
 };
 
-// Сохранить историю чата в БД
 export const saveChatHistory = async (data: {
   userId: string;
   modelSlug: string;
@@ -354,63 +193,33 @@ export const saveChatHistory = async (data: {
 }): Promise<string> => {
   const result = await pool.query(
     `INSERT INTO generations (user_id, model_slug, points_spent, status, prompt, result_url)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id`,
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
     [data.userId, data.modelSlug, data.pointsSpent, data.status || 'completed', data.prompt, data.imageUrl]
   );
-
-  // Обновляем счетчик генераций у пользователя
-  await pool.query(
-    'UPDATE users SET generations_count = generations_count + 1 WHERE id = $1',
-    [data.userId]
-  );
-
+  await pool.query('UPDATE users SET generations_count = generations_count + 1 WHERE id = $1', [data.userId]);
   return result.rows[0].id;
 };
 
-// Получить историю чатов пользователя
 export const getUserChatHistory = async (userId: string, limit: number = 50) => {
   const result = await pool.query(
-    `SELECT g.id, g.model_slug, g.points_spent, g.status, g.prompt, g.result_url, g.created_at,
-            m.name as model_name
-     FROM generations g
-     LEFT JOIN model_coefficients m ON g.model_slug = m.slug
-     WHERE g.user_id = $1
-     ORDER BY g.created_at DESC
-     LIMIT $2`,
+    `SELECT g.id, g.model_slug, g.points_spent, g.status, g.prompt, g.result_url, g.created_at, m.name as model_name
+     FROM generations g LEFT JOIN model_coefficients m ON g.model_slug = m.slug
+     WHERE g.user_id = $1 ORDER BY g.created_at DESC LIMIT $2`,
     [userId, limit]
   );
-
   return result.rows.map(row => ({
-    id: row.id,
-    modelSlug: row.model_slug,
-    modelName: row.model_name,
-    pointsSpent: row.points_spent,
-    status: row.status,
-    prompt: row.prompt,
-    resultUrl: row.result_url,
-    createdAt: row.created_at,
+    id: row.id, modelSlug: row.model_slug, modelName: row.model_name,
+    pointsSpent: row.points_spent, status: row.status, prompt: row.prompt,
+    resultUrl: row.result_url, createdAt: row.created_at,
   }));
 };
 
-// Вспомогательные функции
-const mapModelType = (type: string): string | null => {
-  // Разрешаем только image и video типы
-  const allowedTypes: Record<string, string> = {
-    'image': 'image',
-    'video': 'video',
-  };
-  return allowedTypes[type] || null;
-};
-
-const extractVendor = (modelId: string): string => {
-  const parts = modelId.split('/');
-  return parts.length > 1 ? parts[0] : 'unknown';
-};
-
-// Рассчитать стоимость в поинтах
 export const calculatePointsCost = async (modelSlug: string, basePriceRub: number): Promise<number> => {
   const coefficient = await getModelCoefficient(modelSlug);
-  // Конвертируем рубли в поинты (1 поинт = 1 рубль * коэффициент)
   return Math.round(basePriceRub * coefficient);
+};
+
+export const syncModelsFromPolza = async (): Promise<number> => {
+  // Упрощенная версия синхронизации
+  return 0;
 };
