@@ -1,1 +1,57 @@
-Nothing should be ignored in this case, as the changes only include source code files (.ts and .tsx) without any build artifacts, dependencies, or temporary files.
+```
+# Build artifacts
+dist/
+build/
+target/
+
+# Dependencies
+node_modules/
+vendor/
+lib/
+deps/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.ENV
+.pip-tools/
+requirements.txt.bak
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+*.coverage
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+```

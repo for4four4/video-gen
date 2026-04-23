@@ -162,9 +162,15 @@ export const getModelsCatalog = async (params?: {
   sortOrder?: 'asc' | 'desc';
 }) => {
   try {
+    // Преобразуем type из строки "image,video" в массив для API
+    const typeArray = params?.type ? params.type.split(',') : undefined;
+    
     const response = await axios.get(`${POLZA_API_BASE_URL}/v1/models/catalog`, {
       headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
-      params
+      params: {
+        ...params,
+        type: typeArray, // Передаем как массив
+      }
     });
 
     return response.data;

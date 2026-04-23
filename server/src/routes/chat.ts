@@ -217,14 +217,15 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
   }
 });
 
-// GET /api/chat/models - Получить список моделей из polza.ai
+// GET /api/chat/models - Получить список моделей из polza.ai (только image и video)
 router.get('/models', async (req: Request, res: Response) => {
   try {
-    const { search, type, page, limit, sortBy, sortOrder } = req.query;
+    const { search, page, limit, sortBy, sortOrder } = req.query;
 
+    // Запрашиваем только модели типов image и video
     const catalog = await getModelsCatalog({
       search: search as string,
-      type: type as string,
+      type: 'image,video', // Фильтр по типам
       page: page ? parseInt(page as string) : 1,
       limit: limit ? parseInt(limit as string) : 50,
       sortBy: sortBy as string,
