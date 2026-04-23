@@ -1,7 +1,8 @@
-import { Link, NavLink } from "react-router-dom";
-import { Sparkles, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { Sparkles, Menu, X, MessageCircle, LogOut } from "lucide-react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { authService, User } from "@/services/auth";
 
 const links = [
   { to: "/models", label: "Модели" },
@@ -12,6 +13,36 @@ const links = [
 
 const Header = () => {
   const [open, setOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const location = useLocation();
+
+  useEffect(() => {
+    const checkAuth = () => {
+      const currentUser = authService.getCurrentUser();
+      setUser(currentUser);
+    };
+
+    checkAuth();
+
+    // Слушаем изменения в localStorage (для обработки выхода в других вкладках)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'token' || e.key === 'user') {
+        const currentUser = authService.getCurrentUser();
+        setUser(currentUser);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  const handleLogout = () => {
+    authService.logout();
+    setUser(null);
+  };
+
+  const isChatPage = location.pathname === '/chat';
+  const isAuthenticated = !!user;
 
   return (
     <header className="fixed top-0 inset-x-0 z-50">
@@ -40,12 +71,35 @@ const Header = () => {
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/login">Войти</Link>
-            </Button>
-            <Button asChild variant="hero" size="sm">
-              <Link to="/signup">Начать бесплатно</Link>
-            </Button>
+            {isAuthenticated ? (
+              <>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50">
+                  <span className="text-sm font-medium">{user?.name || user?.email}</span>
+                  <span className="text-xs text-muted-foreground">|</span>
+                  <span className="text-sm text-accent font-semibold">{user?.pointsBalance} pts</span>
+                </div>
+                {!isChatPage && (
+                  <Button asChild variant="hero" size="sm">
+                    <Link to="/chat" className="flex items-center gap-1">
+                      <MessageCircle className="h-4 w-4" />
+                      Чат
+                    </Link>
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={handleLogout} className="flex items-center gap-1">
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button asChild variant="ghost" size="sm">
+                  <Link to="/login">Войти</Link>
+                </Button>
+                <Button asChild variant="hero" size="sm">
+                  <Link to="/signup">Начать бесплатно</Link>
+                </Button>
+              </>
+            )}
           </div>
 
           <button className="md:hidden text-foreground" onClick={() => setOpen(!open)} aria-label="menu">
@@ -61,10 +115,30 @@ const Header = () => {
                   {l.label}
                 </Link>
               ))}
-              <div className="flex gap-2 pt-2">
-                <Button asChild variant="ghost" size="sm" className="flex-1"><Link to="/login">Войти</Link></Button>
-                <Button asChild variant="hero" size="sm" className="flex-1"><Link to="/signup">Начать</Link></Button>
-              </div>
+              {isAuthenticated ? (
+                <>
+                  <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50">
+                    <span className="text-sm font-medium">{user?.name || user?.email}</span>
+                    <span className="text-sm text-accent font-semibold">{user?.pointsBalance} pts</span>
+                  </div>
+                  {!isChatPage && (
+                    <Button asChild variant="hero" size="sm" className="w-full">
+                      <Link to="/chat" onClick={() => setOpen(false)} className="flex items-center justify-center gap-1">
+                        <MessageCircle className="h-4 w-4" />
+                        Чат
+                      </Link>
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => { handleLogout(); setOpen(false); }} className="w-full">
+                    Выйти
+                  </Button>
+                </>
+              ) : (
+                <div className="flex gap-2 pt-2">
+                  <Button asChild variant="ghost" size="sm" className="flex-1"><Link to="/login">Войти</Link></Button>
+                  <Button asChild variant="hero" size="sm" className="flex-1"><Link to="/signup">Начать</Link></Button>
+                </div>
+              )}
             </div>
           </div>
         )}
