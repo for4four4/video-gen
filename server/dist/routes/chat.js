@@ -94,10 +94,17 @@ router.post('/image', auth_1.authMiddleware, async (req, res) => {
             negativePrompt,
             size,
         });
+        console.log('Polza image generation response:', JSON.stringify(polzaResponse, null, 2));
         // Списываем баллы
         await (0, polza_1.deductUserBalance)(userId, pointsCost);
         // Получаем URL изображения (картинки хранятся в polza.ai)
-        const imageUrl = polzaResponse.data?.[0]?.url || '';
+        // Пробуем разные форматы ответа
+        const imageUrl = polzaResponse.data?.[0]?.url ||
+            polzaResponse.images?.[0]?.url ||
+            polzaResponse.url ||
+            polzaResponse.output?.image_url ||
+            '';
+        console.log('Extracted imageUrl:', imageUrl);
         // Сохраняем историю
         await (0, polza_1.saveChatHistory)({
             userId,
