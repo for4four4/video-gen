@@ -5,6 +5,7 @@ import pool from './db';
 import { createTables, seedDefaultData } from './database/init';
 import authRoutes from './routes/auth';
 import adminRoutes from './routes/admin';
+import chatRoutes from './routes/chat';
 
 dotenv.config();
 
@@ -43,6 +44,7 @@ app.use(async (req, res, next) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

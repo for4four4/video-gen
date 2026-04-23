@@ -201,54 +201,28 @@ router.patch('/models/:slug', authMiddleware, adminMiddleware, async (req: AuthR
       values
     );
 
+    // Очищаем кэш коэффициентов после обновления
+    const { clearCoefficientsCache } = await import('../services/polza');
+    clearCoefficientsCache();
+
     res.json({ message: 'Model updated successfully' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Update model error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
 // POST /api/admin/models/sync - Sync models from polza.ai
 router.post('/models/sync', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const polzaApiUrl = process.env.POLZA_API_BASE_URL || 'https://api.polza.ai/v1';
-    const polzaApiKey = process.env.POLZA_API_KEY;
-
-    // Try to fetch from polza.ai API
-    let modelsFromPolza = null;
+    const { syncModelsFromPolza } = await import('../services/polza');
     
-    try {
-      const response = await axios.get(`${polzaApiUrl}/models`, {
-        headers: polzaApiKey ? { 'Authorization': `Bearer ${polzaApiKey}` } : {},
-      });
-      modelsFromPolza = response.data;
-    } catch (error) {
-      console.log('Could not fetch from polza.ai, using default models');
-    }
+    const updatedCount = await syncModelsFromPolza();
 
-    let updatedCount = 0;
-
-    if (modelsFromPolza && Array.isArray(modelsFromPolza)) {
-      for (const model of modelsFromPolza) {
-        await pool.query(
-          `INSERT INTO model_coefficients (slug, name, vendor, type, base_price_usd, coefficient, enabled)
-           VALUES ($1, $2, $3, $4, $5, 1.5, TRUE)
-           ON CONFLICT (slug) DO UPDATE SET 
-             name = EXCLUDED.name,
-             vendor = EXCLUDED.vendor,
-             type = EXCLUDED.type,
-             base_price_usd = EXCLUDED.base_price_usd,
-             updated_at = CURRENT_TIMESTAMP`,
-          [model.slug, model.name, model.vendor, model.type, model.basePriceUsd]
-        );
-        updatedCount++;
-      }
-    }
-
-    res.json({ updated: updatedCount || 8 });
-  } catch (error) {
+    res.json({ updated: updatedCount });
+  } catch (error: any) {
     console.error('Sync models error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 

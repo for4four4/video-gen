@@ -140,7 +140,8 @@ export const seedDefaultData = async () => {
       { key: 'pointToRubRate', value: '1' },
       { key: 'signupBonusPoints', value: '50' },
       { key: 'minTopUpPoints', value: '100' },
-      { key: 'polzaApiBaseUrl', value: process.env.POLZA_API_BASE_URL || 'https://api.polza.ai/v1' },
+      { key: 'polzaApiBaseUrl', value: process.env.POLZA_API_BASE_URL || 'https://polza.ai/api' },
+      { key: 'defaultCoefficient', value: '1.5' },
     ];
 
     for (const setting of settings) {
