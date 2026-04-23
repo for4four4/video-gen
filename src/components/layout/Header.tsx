@@ -14,12 +14,14 @@ const links = [
 const Header = () => {
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const location = useLocation();
 
   useEffect(() => {
     const checkAuth = () => {
       const currentUser = authService.getCurrentUser();
       setUser(currentUser);
+      setIsLoading(false);
     };
 
     checkAuth();
@@ -35,6 +37,10 @@ const Header = () => {
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  if (isLoading) {
+    return null;
+  }
 
   const handleLogout = () => {
     authService.logout();
