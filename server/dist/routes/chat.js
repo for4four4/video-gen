@@ -7,15 +7,16 @@ const router = (0, express_1.Router)();
 // POST /api/chat/send - Отправить сообщение в чат
 router.post('/send', auth_1.authMiddleware, async (req, res) => {
     try {
-        const { model, messages, temperature, max_tokens } = req.body;
-        if (!model || !messages || !Array.isArray(messages)) {
+        const { model, modelSlug, messages, temperature, max_tokens } = req.body;
+        const actualModel = model || modelSlug;
+        if (!actualModel || !messages || !Array.isArray(messages)) {
             return res.status(400).json({ error: 'Model and messages are required' });
         }
         const userId = req.user.id;
         // Проверяем баланс пользователя из БД
         const balance = await (0, polza_1.getUserBalance)(userId);
         // Получаем коэффициент модели
-        const coefficient = await (0, polza_1.getModelCoefficient)(model);
+        const coefficient = await (0, polza_1.getModelCoefficient)(actualModel);
         // Рассчитываем стоимость (упрощенно: базовая цена * коэффициент)
         // В реальном проекте нужно считать токены
         const basePriceRub = 10; // Условная базовая цена за запрос
@@ -29,7 +30,7 @@ router.post('/send', auth_1.authMiddleware, async (req, res) => {
         }
         // Отправляем запрос в polza.ai
         const polzaResponse = await (0, polza_1.sendChatMessage)({
-            model,
+            model: actualModel,
             messages,
             temperature,
             max_tokens,
@@ -41,7 +42,7 @@ router.post('/send', auth_1.authMiddleware, async (req, res) => {
         const assistantMessage = polzaResponse.choices?.[0]?.message?.content || '';
         await (0, polza_1.saveChatHistory)({
             userId,
-            modelSlug: model,
+            modelSlug: actualModel,
             prompt: lastUserMessage?.content || '',
             response: assistantMessage,
             pointsSpent: pointsCost,
@@ -63,15 +64,16 @@ router.post('/send', auth_1.authMiddleware, async (req, res) => {
 // POST /api/chat/image - Сгенерировать изображение
 router.post('/image', auth_1.authMiddleware, async (req, res) => {
     try {
-        const { model, prompt, size } = req.body;
-        if (!model || !prompt) {
+        const { model, modelSlug, prompt, negativePrompt, size } = req.body;
+        const actualModel = model || modelSlug;
+        if (!actualModel || !prompt) {
             return res.status(400).json({ error: 'Model and prompt are required' });
         }
         const userId = req.user.id;
         // Проверяем баланс пользователя из БД
         const balance = await (0, polza_1.getUserBalance)(userId);
         // Получаем коэффициент модели
-        const coefficient = await (0, polza_1.getModelCoefficient)(model);
+        const coefficient = await (0, polza_1.getModelCoefficient)(actualModel);
         // Рассчитываем стоимость
         const basePriceRub = 50; // Условная базовая цена за изображение
         const pointsCost = Math.round(basePriceRub * coefficient);
@@ -84,8 +86,9 @@ router.post('/image', auth_1.authMiddleware, async (req, res) => {
         }
         // Генерируем изображение через polza.ai
         const polzaResponse = await (0, polza_1.generateImage)({
-            model,
+            model: actualModel,
             prompt,
+            negativePrompt,
             size,
         });
         // Списываем баллы
@@ -95,7 +98,7 @@ router.post('/image', auth_1.authMiddleware, async (req, res) => {
         // Сохраняем историю
         await (0, polza_1.saveChatHistory)({
             userId,
-            modelSlug: model,
+            modelSlug: actualModel,
             prompt,
             response: 'Image generated successfully',
             pointsSpent: pointsCost,
@@ -118,15 +121,16 @@ router.post('/image', auth_1.authMiddleware, async (req, res) => {
 // POST /api/chat/video - Сгенерировать видео
 router.post('/video', auth_1.authMiddleware, async (req, res) => {
     try {
-        const { model, prompt, duration, resolution } = req.body;
-        if (!model || !prompt) {
+        const { model, modelSlug, prompt, duration, resolution } = req.body;
+        const actualModel = model || modelSlug;
+        if (!actualModel || !prompt) {
             return res.status(400).json({ error: 'Model and prompt are required' });
         }
         const userId = req.user.id;
         // Проверяем баланс пользователя из БД
         const balance = await (0, polza_1.getUserBalance)(userId);
         // Получаем коэффициент модели
-        const coefficient = await (0, polza_1.getModelCoefficient)(model);
+        const coefficient = await (0, polza_1.getModelCoefficient)(actualModel);
         // Рассчитываем стоимость
         const basePriceRub = 200; // Условная базовая цена за видео
         const pointsCost = Math.round(basePriceRub * coefficient);
@@ -139,7 +143,7 @@ router.post('/video', auth_1.authMiddleware, async (req, res) => {
         }
         // Генерируем видео через polza.ai
         const polzaResponse = await (0, polza_1.generateVideo)({
-            model,
+            model: actualModel,
             prompt,
             duration,
             resolution,
@@ -151,7 +155,7 @@ router.post('/video', auth_1.authMiddleware, async (req, res) => {
         // Сохраняем историю
         await (0, polza_1.saveChatHistory)({
             userId,
-            modelSlug: model,
+            modelSlug: actualModel,
             prompt,
             response: 'Video generated successfully',
             pointsSpent: pointsCost,
@@ -178,6 +182,7 @@ router.get('/models', async (req, res) => {
         // Запрашиваем только модели типов image и video
         const catalog = await (0, polza_1.getModelsCatalog)({
             search: search,
+            type: ['image', 'video'], // явный фильтр по типам
             page: page ? parseInt(page) : 1,
             limit: limit ? parseInt(limit) : 50,
             sortBy: sortBy,
