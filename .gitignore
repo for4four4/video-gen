@@ -2,56 +2,16 @@
 # Build artifacts
 dist/
 build/
-target/
-
 # Dependencies
 node_modules/
-vendor/
-lib/
-deps/
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-.ENV
-.pip-tools/
-requirements.txt.bak
-
-# Logs
+# Logs and temp files
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment variables
+*.tmp
+# Environment
 .env
 .env.local
 .env.*
-!.env.example
-
-# IDE
+# Editors
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-*.coverage
-
-# Temporary files
-*.tmp
-*.temp
-.DS_Store
 ```

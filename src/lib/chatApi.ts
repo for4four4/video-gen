@@ -1,6 +1,14 @@
 // API клиент для работы с chat endpoints
 const API_BASE = "/api";
 
+// Получение токена из localStorage
+const getToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('token');
+  }
+  return null;
+};
+
 export interface ChatModel {
   id: string;
   slug: string;
@@ -89,9 +97,13 @@ export async function fetchChatModels(): Promise<ChatModel[]> {
 
 /** POST /api/chat/send - отправить сообщение в чат */
 export async function sendChatMessage(data: SendChatRequest): Promise<GenerationResult> {
+  const token = getToken();
   const response = await fetch(`${API_BASE}/chat/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(data),
   });
   return handleResponse<GenerationResult>(response);
@@ -99,9 +111,13 @@ export async function sendChatMessage(data: SendChatRequest): Promise<Generation
 
 /** POST /api/chat/image - генерация изображения */
 export async function generateImage(data: SendImageRequest): Promise<GenerationResult> {
+  const token = getToken();
   const response = await fetch(`${API_BASE}/chat/image`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(data),
   });
   return handleResponse<GenerationResult>(response);
@@ -109,9 +125,13 @@ export async function generateImage(data: SendImageRequest): Promise<GenerationR
 
 /** POST /api/chat/video - генерация видео */
 export async function generateVideo(data: SendVideoRequest): Promise<GenerationResult> {
+  const token = getToken();
   const response = await fetch(`${API_BASE}/chat/video`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(data),
   });
   return handleResponse<GenerationResult>(response);
@@ -119,20 +139,34 @@ export async function generateVideo(data: SendVideoRequest): Promise<GenerationR
 
 /** GET /api/chat/history - история чатов */
 export async function fetchChatHistory(): Promise<ChatSession[]> {
-  const response = await fetch(`${API_BASE}/chat/history`);
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/chat/history`, {
+    headers: {
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
+  });
   return handleResponse<ChatSession[]>(response);
 }
 
 /** GET /api/chat/session/:id - конкретная сессия */
 export async function fetchChatSession(sessionId: string): Promise<ChatSession> {
-  const response = await fetch(`${API_BASE}/chat/session/${sessionId}`);
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/chat/session/${sessionId}`, {
+    headers: {
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
+  });
   return handleResponse<ChatSession>(response);
 }
 
 /** DELETE /api/chat/session/:id - удалить сессию */
 export async function deleteChatSession(sessionId: string): Promise<void> {
+  const token = getToken();
   const response = await fetch(`${API_BASE}/chat/session/${sessionId}`, {
     method: "DELETE",
+    headers: {
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "Delete failed" }));
@@ -142,6 +176,11 @@ export async function deleteChatSession(sessionId: string): Promise<void> {
 
 /** GET /api/chat/balance - баланс пользователя */
 export async function fetchUserBalance(): Promise<UserBalance> {
-  const response = await fetch(`${API_BASE}/chat/balance`);
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/chat/balance`, {
+    headers: {
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
+  });
   return handleResponse<UserBalance>(response);
 }
