@@ -152,6 +152,7 @@ export const syncModelsFromPolza = async (): Promise<number> => {
 // Получить модели из polza.ai с фильтрацией (только image и video)
 export const getModelsCatalog = async (params?: {
   search?: string;
+  type?: string[];
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -162,7 +163,7 @@ export const getModelsCatalog = async (params?: {
       headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
       params: {
         search: params?.search,
-        type: ['image', 'video'], // Фильтр только по image и video
+        type: params?.type || ['image', 'video'], // Фильтр только по image и video
         page: params?.page || 1,
         limit: params?.limit || 50,
         sortBy: params?.sortBy || 'name',

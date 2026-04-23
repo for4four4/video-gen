@@ -22,6 +22,29 @@ export interface ChatModel {
   enabled: boolean;
 }
 
+interface PolzaModel {
+  id: string;
+  name: string;
+  type: string;
+  created: number;
+  architecture: {
+    input_modalities: string[];
+    output_modalities: string[];
+  };
+  top_provider: {
+    context_length?: number;
+    max_completion_tokens?: number;
+    pricing?: {
+      prompt_per_million?: string;
+      completion_per_million?: string;
+      request_per_thousand?: string;
+      video_per_second?: string;
+      currency?: string;
+    };
+  };
+  endpoints?: string[];
+}
+
 export interface ChatMessage {
   id?: string;
   role: "user" | "assistant" | "system";
@@ -89,10 +112,38 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
   return response.json();
 };
 
-/** GET /api/chat/models - получить каталог моделей */
+/** GET /api/chat/models - получить каталог моделей (только image и video) */
 export async function fetchChatModels(): Promise<ChatModel[]> {
-  const response = await fetch(`${API_BASE}/chat/models`);
-  return handleResponse<ChatModel[]>(response);
+  const response = await fetch(`${API_BASE}/chat/models?type=image&type=video`);
+  const data = await handleResponse<{ data: PolzaModel[] }>(response);
+  
+  // Преобразуем данные из polza.ai в формат ChatModel
+  return (data.data || []).map((model: PolzaModel) => {
+    // Получаем цену из pricing
+    const pricing = model.top_provider?.pricing || {};
+    let pricePoints = 10; // значение по умолчанию
+    
+    if (pricing.prompt_per_million) {
+      pricePoints = Math.round(parseFloat(pricing.prompt_per_million));
+    } else if (pricing.request_per_thousand) {
+      pricePoints = Math.round(parseFloat(pricing.request_per_thousand) * 100);
+    } else if (pricing.video_per_second) {
+      pricePoints = Math.round(parseFloat(pricing.video_per_second) * 100);
+    }
+    
+    return {
+      id: model.id,
+      slug: model.id,
+      name: model.name,
+      type: model.type as ChatModel["type"],
+      inputModalities: model.architecture?.input_modalities || [],
+      outputModalities: model.architecture?.output_modalities || [],
+      contextLength: model.top_provider?.context_length,
+      pricePoints,
+      coefficient: 1.5, // коэффициент по умолчанию
+      enabled: true,
+    };
+  });
 }
 
 /** POST /api/chat/send - отправить сообщение в чат */

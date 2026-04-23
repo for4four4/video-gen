@@ -225,6 +225,7 @@ router.get('/models', async (req: Request, res: Response) => {
     // Запрашиваем только модели типов image и video
     const catalog = await getModelsCatalog({
       search: search as string,
+      type: ['image', 'video'], // явный фильтр по типам
       page: page ? parseInt(page as string) : 1,
       limit: limit ? parseInt(limit as string) : 50,
       sortBy: sortBy as string,
