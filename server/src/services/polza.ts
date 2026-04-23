@@ -236,17 +236,41 @@ export const generateImage = async (options: {
   negativePrompt?: string;
   size?: string;
   n?: number;
+  aspect_ratio?: string;
+  image_resolution?: string;
+  quality?: string;
+  seed?: number;
+  guidance_scale?: number;
+  enable_safety_checker?: boolean;
+  output_format?: string;
+  upscale_factor?: number;
+  fixed_lens?: boolean;
+  generate_audio?: boolean;
 }): Promise<any> => {
   try {
+    const requestBody: any = {
+      model: options.model,
+      prompt: options.prompt,
+    };
+
+    // Добавляем опциональные параметры только если они переданы
+    if (options.negativePrompt) requestBody.negative_prompt = options.negativePrompt;
+    if (options.size) requestBody.size = options.size;
+    if (options.n) requestBody.n = options.n;
+    if (options.aspect_ratio) requestBody.aspect_ratio = options.aspect_ratio;
+    if (options.image_resolution) requestBody.image_resolution = options.image_resolution;
+    if (options.quality) requestBody.quality = options.quality;
+    if (options.seed !== undefined) requestBody.seed = options.seed;
+    if (options.guidance_scale !== undefined) requestBody.guidance_scale = options.guidance_scale;
+    if (options.enable_safety_checker !== undefined) requestBody.enable_safety_checker = options.enable_safety_checker;
+    if (options.output_format) requestBody.output_format = options.output_format;
+    if (options.upscale_factor) requestBody.upscale_factor = options.upscale_factor;
+    if (options.fixed_lens !== undefined) requestBody.fixed_lens = options.fixed_lens;
+    if (options.generate_audio !== undefined) requestBody.generate_audio = options.generate_audio;
+
     const response = await axios.post(
       `${POLZA_API_BASE_URL}/v1/images/generations`,
-      {
-        model: options.model,
-        prompt: options.prompt,
-        negative_prompt: options.negativePrompt,
-        size: options.size || '1024x1024',
-        n: options.n || 1,
-      },
+      requestBody,
       {
         headers: {
           'Content-Type': 'application/json',

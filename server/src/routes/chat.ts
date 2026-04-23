@@ -88,7 +88,7 @@ router.post('/send', authMiddleware, async (req: AuthRequest, res: Response) => 
 // POST /api/chat/image - Сгенерировать изображение
 router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { model, modelSlug, prompt, negativePrompt, size } = req.body;
+    const { model, modelSlug, prompt, negativePrompt, size, aspect_ratio, image_resolution, quality, seed, guidance_scale, enable_safety_checker, output_format, n } = req.body;
     const actualModel = model || modelSlug;
 
     if (!actualModel || !prompt) {
@@ -121,6 +121,14 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
       prompt,
       negativePrompt,
       size,
+      n,
+      aspect_ratio,
+      image_resolution,
+      quality,
+      seed,
+      guidance_scale,
+      enable_safety_checker,
+      output_format,
     });
 
     // Списываем баллы
