@@ -233,6 +233,7 @@ export const sendChatMessage = async (options: {
 export const generateImage = async (options: {
   model: string;
   prompt: string;
+  negativePrompt?: string;
   size?: string;
   n?: number;
 }): Promise<any> => {
@@ -242,6 +243,7 @@ export const generateImage = async (options: {
       {
         model: options.model,
         prompt: options.prompt,
+        negative_prompt: options.negativePrompt,
         size: options.size || '1024x1024',
         n: options.n || 1,
       },

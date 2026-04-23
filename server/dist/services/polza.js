@@ -80,12 +80,19 @@ const deductUserBalance = async (userId, amount) => {
     }
 };
 exports.deductUserBalance = deductUserBalance;
-// Синхронизировать модели из polza.ai
+// Синхронизировать модели из polza.ai (только image и video)
 const syncModelsFromPolza = async () => {
     try {
-        const response = await axios_1.default.get(`${POLZA_API_BASE_URL}/v1/models/catalog`, {
+        // Формируем URL вручную для корректной передачи массива type
+        const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
+        const queryParams = new URLSearchParams();
+        // Добавляем каждый тип как отдельный параметр
+        queryParams.append('type', 'image');
+        queryParams.append('type', 'video');
+        queryParams.append('limit', '500');
+        const url = `${baseUrl}?${queryParams.toString()}`;
+        const response = await axios_1.default.get(url, {
             headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
-            params: { limit: 500 } // Получаем больше моделей
         });
         const models = response.data.data || [];
         let updatedCount = 0;
@@ -132,16 +139,23 @@ exports.syncModelsFromPolza = syncModelsFromPolza;
 // Получить модели из polza.ai с фильтрацией (только image и video)
 const getModelsCatalog = async (params) => {
     try {
-        const response = await axios_1.default.get(`${POLZA_API_BASE_URL}/v1/models/catalog`, {
+        // Формируем URL вручную для корректной передачи массива type
+        const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
+        const queryParams = new URLSearchParams();
+        if (params?.search)
+            queryParams.append('search', params.search);
+        // Добавляем каждый тип как отдельный параметр
+        const types = params?.type || ['image', 'video'];
+        types.forEach(type => queryParams.append('type', type));
+        queryParams.append('page', String(params?.page || 1));
+        queryParams.append('limit', String(params?.limit || 50));
+        if (params?.sortBy)
+            queryParams.append('sortBy', params.sortBy);
+        if (params?.sortOrder)
+            queryParams.append('sortOrder', params.sortOrder);
+        const url = `${baseUrl}?${queryParams.toString()}`;
+        const response = await axios_1.default.get(url, {
             headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
-            params: {
-                search: params?.search,
-                type: ['image', 'video'], // Фильтр только по image и video
-                page: params?.page || 1,
-                limit: params?.limit || 50,
-                sortBy: params?.sortBy || 'name',
-                sortOrder: params?.sortOrder || 'asc',
-            }
         });
         return response.data;
     }
@@ -179,6 +193,7 @@ const generateImage = async (options) => {
         const response = await axios_1.default.post(`${POLZA_API_BASE_URL}/v1/images/generations`, {
             model: options.model,
             prompt: options.prompt,
+            negative_prompt: options.negativePrompt,
             size: options.size || '1024x1024',
             n: options.n || 1,
         }, {
@@ -250,16 +265,12 @@ const getUserChatHistory = async (userId, limit = 50) => {
 exports.getUserChatHistory = getUserChatHistory;
 // Вспомогательные функции
 const mapModelType = (type) => {
-    const typeMap = {
-        'chat': 'chat',
+    // Разрешаем только image и video типы
+    const allowedTypes = {
         'image': 'image',
         'video': 'video',
-        'embedding': 'embedding',
-        'audio': 'audio',
-        'stt': 'audio',
-        'tts': 'audio',
     };
-    return typeMap[type] || null;
+    return allowedTypes[type] || null;
 };
 const extractVendor = (modelId) => {
     const parts = modelId.split('/');
