@@ -9,6 +9,7 @@ import { ModelsList, ModelDetail } from "./pages/Models.tsx";
 import { BlogList, BlogPost } from "./pages/Blog.tsx";
 import { NewsList, NewsItem } from "./pages/News.tsx";
 import { Login, Signup } from "./pages/Auth.tsx";
+import { ForgotPassword, ResetPassword } from "./pages/ForgotPassword.tsx";
 import Chat from "./pages/Chat.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
 import Admin from "./pages/Admin.tsx";
@@ -33,6 +34,8 @@ const App = () => (
           <Route path="/news/:slug" element={<NewsItem />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password/:token" element={<ResetPassword />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/admin" element={<Admin />} />
