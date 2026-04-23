@@ -96,12 +96,22 @@ export const deductUserBalance = async (userId: string, amount: number): Promise
   }
 };
 
-// Синхронизировать модели из polza.ai
+// Синхронизировать модели из polza.ai (только image и video)
 export const syncModelsFromPolza = async (): Promise<number> => {
   try {
-    const response = await axios.get(`${POLZA_API_BASE_URL}/v1/models/catalog`, {
+    // Формируем URL вручную для корректной передачи массива type
+    const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
+    const queryParams = new URLSearchParams();
+    
+    // Добавляем каждый тип как отдельный параметр
+    queryParams.append('type', 'image');
+    queryParams.append('type', 'video');
+    queryParams.append('limit', '500');
+    
+    const url = `${baseUrl}?${queryParams.toString()}`;
+    
+    const response = await axios.get(url, {
       headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
-      params: { limit: 500 } // Получаем больше моделей
     });
 
     const models = response.data.data || [];
@@ -159,16 +169,26 @@ export const getModelsCatalog = async (params?: {
   sortOrder?: 'asc' | 'desc';
 }) => {
   try {
-    const response = await axios.get(`${POLZA_API_BASE_URL}/v1/models/catalog`, {
+    // Формируем URL вручную для корректной передачи массива type
+    const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
+    const queryParams = new URLSearchParams();
+    
+    if (params?.search) queryParams.append('search', params.search);
+    
+    // Добавляем каждый тип как отдельный параметр
+    const types = params?.type || ['image', 'video'];
+    types.forEach(type => queryParams.append('type', type));
+    
+    queryParams.append('page', String(params?.page || 1));
+    queryParams.append('limit', String(params?.limit || 50));
+    
+    if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder);
+    
+    const url = `${baseUrl}?${queryParams.toString()}`;
+    
+    const response = await axios.get(url, {
       headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
-      params: {
-        search: params?.search,
-        type: params?.type || ['image', 'video'], // Фильтр только по image и video
-        page: params?.page || 1,
-        limit: params?.limit || 50,
-        sortBy: params?.sortBy || 'name',
-        sortOrder: params?.sortOrder || 'asc',
-      }
     });
 
     return response.data;
@@ -324,16 +344,12 @@ export const getUserChatHistory = async (userId: string, limit: number = 50) => 
 
 // Вспомогательные функции
 const mapModelType = (type: string): string | null => {
-  const typeMap: Record<string, string> = {
-    'chat': 'chat',
+  // Разрешаем только image и video типы
+  const allowedTypes: Record<string, string> = {
     'image': 'image',
     'video': 'video',
-    'embedding': 'embedding',
-    'audio': 'audio',
-    'stt': 'audio',
-    'tts': 'audio',
   };
-  return typeMap[type] || null;
+  return allowedTypes[type] || null;
 };
 
 const extractVendor = (modelId: string): string => {
