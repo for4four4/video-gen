@@ -1,34 +1,39 @@
+```
 # Dependencies
 node_modules/
 
-# Build outputs
-dist/
-*.tsbuildinfo
-tsconfig.app.tsbuildinfo
-tsconfig.node.tsbuildinfo
-
-# Environment files
+# Environment variables
 .env
-.env.*.local
+.env.local
+.env.*
 
 # Logs
 *.log
-npm-debug.log*
 
-# Editor files
+# Build outputs
+dist/
+build/
+target/
+
+# TypeScript
+*.tsbuildinfo
+out/
+
+# IDE
 .vscode/
 .idea/
-.DS_Store
-*.swp
-*.swo
 
-# OS files
+# OS
+.DS_Store
 Thumbs.db
 
-# Test coverage
-coverage/
-
-# Temporary files
-.temp/
-.tmp/
-.cache/
+# Python (if any Python projects in future)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+.env
+```
