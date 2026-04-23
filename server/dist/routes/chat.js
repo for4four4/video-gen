@@ -7,15 +7,18 @@ const router = (0, express_1.Router)();
 // POST /api/chat/send - Отправить сообщение в чат
 router.post('/send', auth_1.authMiddleware, async (req, res) => {
     try {
+
         const { model, modelSlug, messages, temperature, max_tokens } = req.body;
         const actualModel = model || modelSlug;
         if (!actualModel || !messages || !Array.isArray(messages)) {
             return res.status(400).json({ error: 'Model and messages are required' });
         }
+      
         const userId = req.user.id;
         // Проверяем баланс пользователя из БД
         const balance = await (0, polza_1.getUserBalance)(userId);
         // Получаем коэффициент модели
+
         const coefficient = await (0, polza_1.getModelCoefficient)(actualModel);
         // Рассчитываем стоимость (упрощенно: базовая цена * коэффициент)
         // В реальном проекте нужно считать токены
