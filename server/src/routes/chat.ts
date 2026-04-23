@@ -87,9 +87,10 @@ router.post('/send', authMiddleware, async (req: AuthRequest, res: Response) => 
 // POST /api/chat/image - Сгенерировать изображение
 router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { modelSlug, prompt, negativePrompt, size } = req.body;
+    const { model, modelSlug, prompt, negativePrompt, size } = req.body;
+    const actualModelSlug = model || modelSlug;
 
-    if (!modelSlug || !prompt) {
+    if (!actualModelSlug || !prompt) {
       return res.status(400).json({ error: 'Model and prompt are required' });
     }
 
@@ -99,7 +100,7 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
     const balance = await getUserBalance(userId);
     
     // Получаем коэффициент модели
-    const coefficient = await getModelCoefficient(modelSlug);
+    const coefficient = await getModelCoefficient(actualModelSlug);
     
     // Рассчитываем стоимость
     const basePriceRub = 50; // Условная базовая цена за изображение
@@ -115,7 +116,7 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
 
     // Генерируем изображение через polza.ai
     const polzaResponse = await generateImage({
-      model: modelSlug,
+      model: actualModelSlug,
       prompt,
       negativePrompt,
       size,
@@ -130,7 +131,7 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
     // Сохраняем историю
     await saveChatHistory({
       userId,
-      modelSlug,
+      modelSlug: actualModelSlug,
       prompt,
       response: 'Image generated successfully',
       pointsSpent: pointsCost,

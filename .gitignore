@@ -11,10 +11,7 @@ node_modules/
 venv/
 .venv/
 __pycache__/
-.mypy_cache/
-.pytest_cache/
-target/
-.gradle/
+*.egg-info/
 
 # Logs and temp files
 *.log
@@ -29,13 +26,10 @@ target/
 # Editors
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# OS specific
+# OS generated files
 .DS_Store
 Thumbs.db
 ```
