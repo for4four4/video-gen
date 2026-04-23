@@ -143,12 +143,16 @@ const Chat = () => {
   };
 
   const newChat = () => {
+    if (!models.length) {
+      toast.error("Модели ещё не загружены");
+      return;
+    }
     const id = `c_${Date.now()}`;
     const fresh: ChatSession = {
       id,
       title: "Новый чат",
       updatedAt: Date.now(),
-      modelSlug: model.slug,
+      modelSlug: models[0].slug,
       messages: [
         { role: "assistant", text: "Новый чат начат. Что генерируем?", model: "Imagination" },
       ],
