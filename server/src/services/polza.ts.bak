@@ -99,9 +99,11 @@ export const deductUserBalance = async (userId: string, amount: number): Promise
 // Синхронизировать модели из polza.ai (только image и video)
 export const syncModelsFromPolza = async (): Promise<number> => {
   try {
+    // Формируем URL вручную для корректной передачи массива type
     const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
     const queryParams = new URLSearchParams();
 
+    // Добавляем каждый тип как отдельный параметр
     queryParams.append('type', 'image');
     queryParams.append('type', 'video');
     queryParams.append('limit', '500');
@@ -117,11 +119,13 @@ export const syncModelsFromPolza = async (): Promise<number> => {
 
     for (const model of models) {
       const type = mapModelType(model.type);
-      if (!type) continue;
+      if (!type) continue; // Пропускаем неподдерживаемые типы
 
+      // Получаем цену из top_provider.pricing
       const pricing = model.top_provider?.pricing || {};
       let basePriceUsd = 0;
 
+      // Конвертируем RUB в USD (условно 1 USD = 90 RUB)
       if (pricing.prompt_per_million) {
         basePriceUsd = parseFloat(pricing.prompt_per_million) / 90;
       } else if (pricing.request_per_thousand) {
@@ -130,6 +134,7 @@ export const syncModelsFromPolza = async (): Promise<number> => {
         basePriceUsd = parseFloat(pricing.video_per_second) / 90;
       }
 
+      // Вставляем или обновляем модель
       await pool.query(`
         INSERT INTO model_coefficients (slug, name, vendor, type, base_price_usd, coefficient, enabled)
         VALUES ($1, $2, $3, $4, $5, 1.5, TRUE)
@@ -144,7 +149,9 @@ export const syncModelsFromPolza = async (): Promise<number> => {
       updatedCount++;
     }
 
+    // Очищаем кэш коэффициентов после синхронизации
     clearCoefficientsCache();
+
     return updatedCount;
   } catch (error) {
     console.error('Error syncing models from polza.ai:', error);
@@ -152,7 +159,7 @@ export const syncModelsFromPolza = async (): Promise<number> => {
   }
 };
 
-// Получить модели из polza.ai с фильтрацией
+// Получить модели из polza.ai с фильтрацией (только image и video)
 export const getModelsCatalog = async (params?: {
   search?: string;
   type?: string[];
@@ -162,11 +169,13 @@ export const getModelsCatalog = async (params?: {
   sortOrder?: 'asc' | 'desc';
 }) => {
   try {
+    // Формируем URL вручную для корректной передачи массива type
     const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
     const queryParams = new URLSearchParams();
 
     if (params?.search) queryParams.append('search', params.search);
 
+    // Добавляем каждый тип как отдельный параметр
     const types = params?.type || ['image', 'video'];
     types.forEach(type => queryParams.append('type', type));
 
@@ -229,8 +238,7 @@ export const generateImage = async (options: {
   n?: number;
 }): Promise<any> => {
   try {
-    console.log('[Polza] Starting image generation for model:', options.model, 'prompt:', options.prompt);
-    
+    // Шаг 1: Создаем генерацию через POST /v1/media
     const createResponse = await axios.post(
       `${POLZA_API_BASE_URL}/v1/media`,
       {
@@ -248,53 +256,44 @@ export const generateImage = async (options: {
       }
     );
 
-    console.log('[Polza] Create response:', JSON.stringify(createResponse.data, null, 2));
-    
     const generationId = createResponse.data.id;
+    
+    // Шаг 2: Polling - ждем завершения генерации
     let statusResponse = createResponse.data;
-    const maxAttempts = 60;
-    const pollInterval = 5000;
-
+    const maxAttempts = 60; // Максимум 60 попыток (5 минут при интервале 5 сек)
+    const pollInterval = 5000; // 5 секунд
+    
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      console.log(`[Polza] Poll attempt ${attempt + 1}/${maxAttempts}, status:`, statusResponse.status);
-      
       if (statusResponse.status === 'completed') {
+        // Извлекаем URL изображения из data.url
         const imageUrl = statusResponse.data?.url;
-        console.log('[Polza] Generation completed, imageUrl:', imageUrl);
-        console.log('[Polza] Full data object:', JSON.stringify(statusResponse.data, null, 2));
-        
         if (!imageUrl) {
-          const altUrl = statusResponse.data?.images?.[0]?.url || 
-                         statusResponse.images?.[0]?.url ||
-                         statusResponse.content;
-          if (altUrl) {
-            console.log('[Polza] Found alternative URL:', altUrl);
-            return { ...statusResponse, imageUrl: altUrl };
-          }
-          throw new Error('Image URL not found in response. Full response: ' + JSON.stringify(statusResponse));
+          throw new Error('Image URL not found in response');
         }
-        return { ...statusResponse, imageUrl };
+        return {
+          ...statusResponse,
+          imageUrl,
+        };
       }
-
+      
       if (statusResponse.status === 'failed') {
-        console.error('[Polza] Generation failed:', statusResponse.error);
         throw new Error(statusResponse.error?.message || 'Image generation failed');
       }
-
+      
+      // Ждем перед следующей проверкой
       await new Promise(resolve => setTimeout(resolve, pollInterval));
-
-      const statusCheckResponse = await axios.get(
+      
+      // Проверяем статус через GET /v1/media/{id}
+      statusResponse = await axios.get(
         `${POLZA_API_BASE_URL}/v1/media/${generationId}`,
         {
           headers: {
             ...(POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {}),
           },
         }
-      );
-      statusResponse = statusCheckResponse.data;
-      console.log('[Polza] Status check response:', JSON.stringify(statusResponse, null, 2));
+      ).then(r => r.data);
     }
-
+    
     throw new Error('Image generation timeout');
   } catch (error: any) {
     console.error('Error generating image:', error.response?.data || error.message);
@@ -350,6 +349,7 @@ export const saveChatHistory = async (data: {
     [data.userId, data.modelSlug, data.pointsSpent, data.status || 'completed', data.prompt, data.imageUrl]
   );
 
+  // Обновляем счетчик генераций у пользователя
   await pool.query(
     'UPDATE users SET generations_count = generations_count + 1 WHERE id = $1',
     [data.userId]
@@ -385,6 +385,7 @@ export const getUserChatHistory = async (userId: string, limit: number = 50) => 
 
 // Вспомогательные функции
 const mapModelType = (type: string): string | null => {
+  // Разрешаем только image и video типы
   const allowedTypes: Record<string, string> = {
     'image': 'image',
     'video': 'video',
@@ -400,5 +401,6 @@ const extractVendor = (modelId: string): string => {
 // Рассчитать стоимость в поинтах
 export const calculatePointsCost = async (modelSlug: string, basePriceRub: number): Promise<number> => {
   const coefficient = await getModelCoefficient(modelSlug);
+  // Конвертируем рубли в поинты (1 поинт = 1 рубль * коэффициент)
   return Math.round(basePriceRub * coefficient);
 };
