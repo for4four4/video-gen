@@ -155,9 +155,23 @@ export async function sendChatMessage(data: SendChatRequest): Promise<Generation
       "Content-Type": "application/json",
       ...(token ? { "Authorization": `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      model: data.modelSlug,
+      messages: [{ role: "user", content: data.message }],
+    }),
   });
-  return handleResponse<GenerationResult>(response);
+  const result = await handleResponse<{ response: any; pointsSpent: number; remainingBalance: number }>(response);
+  // Преобразуем ответ сервера в формат клиента
+  return {
+    id: `msg_${Date.now()}`,
+    status: "success",
+    cost: result.pointsSpent,
+    modelSlug: data.modelSlug,
+    messages: [{ 
+      role: "assistant", 
+      content: result.response?.choices?.[0]?.message?.content || "Готово!" 
+    }],
+  };
 }
 
 /** POST /api/chat/image - генерация изображения */
@@ -169,9 +183,23 @@ export async function generateImage(data: SendImageRequest): Promise<GenerationR
       "Content-Type": "application/json",
       ...(token ? { "Authorization": `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      model: data.modelSlug,
+      prompt: data.prompt,
+      negativePrompt: data.negativePrompt,
+      size: data.width && data.height ? `${data.width}x${data.height}` : undefined,
+    }),
   });
-  return handleResponse<GenerationResult>(response);
+  const result = await handleResponse<{ imageUrl: string; pointsSpent: number; remainingBalance: number }>(response);
+  // Преобразуем ответ сервера в формат клиента
+  return {
+    id: `img_${Date.now()}`,
+    status: "success",
+    result: result.imageUrl,
+    cost: result.pointsSpent,
+    modelSlug: data.modelSlug,
+    messages: [{ role: "assistant", content: "Image generated" }],
+  };
 }
 
 /** POST /api/chat/video - генерация видео */
@@ -183,9 +211,23 @@ export async function generateVideo(data: SendVideoRequest): Promise<GenerationR
       "Content-Type": "application/json",
       ...(token ? { "Authorization": `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      model: data.modelSlug,
+      prompt: data.prompt,
+      duration: data.duration,
+      resolution: data.resolution,
+    }),
   });
-  return handleResponse<GenerationResult>(response);
+  const result = await handleResponse<{ videoUrl: string; pointsSpent: number; remainingBalance: number }>(response);
+  // Преобразуем ответ сервера в формат клиента
+  return {
+    id: `vid_${Date.now()}`,
+    status: "success",
+    result: result.videoUrl,
+    cost: result.pointsSpent,
+    modelSlug: data.modelSlug,
+    messages: [{ role: "assistant", content: "Video generated" }],
+  };
 }
 
 /** GET /api/chat/history - история чатов */
@@ -233,5 +275,7 @@ export async function fetchUserBalance(): Promise<UserBalance> {
       ...(token ? { "Authorization": `Bearer ${token}` } : {}),
     },
   });
-  return handleResponse<UserBalance>(response);
+  const data = await handleResponse<{ balance: number }>(response);
+  // Сервер возвращает { balance: number }, преобразуем в формат клиента
+  return { points: data.balance, rubles: data.balance };
 }
