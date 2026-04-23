@@ -1,7 +1,8 @@
-import { Link, NavLink } from "react-router-dom";
-import { Sparkles, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { Sparkles, Menu, X, MessageCircle, LogOut } from "lucide-react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { authService, User } from "@/services/auth";
 
 const links = [
   { to: "/models", label: "Модели" },
@@ -12,6 +13,27 @@ const links = [
 
 const Header = () => {
   const [open, setOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const location = useLocation();
+  const isChatPage = location.pathname === "/chat";
+
+  useEffect(() => {
+    const currentUser = authService.getCurrentUser();
+    setUser(currentUser);
+
+    // Слушаем изменения в localStorage (например, при логине/логауте)
+    const handleStorageChange = () => {
+      setUser(authService.getCurrentUser());
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  const handleLogout = () => {
+    authService.logout();
+    setUser(null);
+  };
 
   return (
     <header className="fixed top-0 inset-x-0 z-50">
@@ -40,12 +62,35 @@ const Header = () => {
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/login">Войти</Link>
-            </Button>
-            <Button asChild variant="hero" size="sm">
-              <Link to="/signup">Начать бесплатно</Link>
-            </Button>
+            {user ? (
+              <>
+                <div className="flex items-center gap-4 mr-2">
+                  <span className="text-sm text-muted-foreground">{user.name || user.email}</span>
+                  <span className="text-sm font-medium text-accent">Баланс: {user.pointsBalance}</span>
+                </div>
+                {!isChatPage && (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link to="/chat" className="flex items-center gap-2">
+                      <MessageCircle className="h-4 w-4" />
+                      Чат
+                    </Link>
+                  </Button>
+                )}
+                <Button onClick={handleLogout} variant="ghost" size="sm" className="flex items-center gap-2">
+                  <LogOut className="h-4 w-4" />
+                  Выйти
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button asChild variant="ghost" size="sm">
+                  <Link to="/login">Войти</Link>
+                </Button>
+                <Button asChild variant="hero" size="sm">
+                  <Link to="/signup">Начать бесплатно</Link>
+                </Button>
+              </>
+            )}
           </div>
 
           <button className="md:hidden text-foreground" onClick={() => setOpen(!open)} aria-label="menu">
@@ -61,10 +106,30 @@ const Header = () => {
                   {l.label}
                 </Link>
               ))}
-              <div className="flex gap-2 pt-2">
-                <Button asChild variant="ghost" size="sm" className="flex-1"><Link to="/login">Войти</Link></Button>
-                <Button asChild variant="hero" size="sm" className="flex-1"><Link to="/signup">Начать</Link></Button>
-              </div>
+              {user ? (
+                <>
+                  <div className="flex flex-col gap-1 pt-2 pb-3 border-b border-white/5">
+                    <span className="text-sm font-medium">{user.name || user.email}</span>
+                    <span className="text-xs text-accent">Баланс: {user.pointsBalance}</span>
+                  </div>
+                  {!isChatPage && (
+                    <Button asChild variant="ghost" size="sm" className="w-full">
+                      <Link to="/chat" onClick={() => setOpen(false)} className="flex items-center gap-2">
+                        <MessageCircle className="h-4 w-4" />
+                        Чат
+                      </Link>
+                    </Button>
+                  )}
+                  <Button onClick={() => { handleLogout(); setOpen(false); }} variant="ghost" size="sm" className="w-full">
+                    Выйти
+                  </Button>
+                </>
+              ) : (
+                <div className="flex gap-2 pt-2">
+                  <Button asChild variant="ghost" size="sm" className="flex-1"><Link to="/login">Войти</Link></Button>
+                  <Button asChild variant="hero" size="sm" className="flex-1"><Link to="/signup">Начать</Link></Button>
+                </div>
+              )}
             </div>
           </div>
         )}
