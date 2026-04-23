@@ -129,16 +129,18 @@ const syncModelsFromPolza = async () => {
     }
 };
 exports.syncModelsFromPolza = syncModelsFromPolza;
-// Получить модели из polza.ai с фильтрацией
+// Получить модели из polza.ai с фильтрацией (только image и video)
 const getModelsCatalog = async (params) => {
     try {
-        // Преобразуем type из строки "image,video" в массив для API
-        const typeArray = params?.type ? params.type.split(',') : undefined;
         const response = await axios_1.default.get(`${POLZA_API_BASE_URL}/v1/models/catalog`, {
             headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
             params: {
-                ...params,
-                type: typeArray, // Передаем как массив
+                search: params?.search,
+                type: ['image', 'video'], // Фильтр только по image и video
+                page: params?.page || 1,
+                limit: params?.limit || 50,
+                sortBy: params?.sortBy || 'name',
+                sortOrder: params?.sortOrder || 'asc',
             }
         });
         return response.data;

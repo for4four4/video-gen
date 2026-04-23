@@ -178,7 +178,6 @@ router.get('/models', async (req, res) => {
         // Запрашиваем только модели типов image и video
         const catalog = await (0, polza_1.getModelsCatalog)({
             search: search,
-            type: 'image,video', // Фильтр по типам
             page: page ? parseInt(page) : 1,
             limit: limit ? parseInt(limit) : 50,
             sortBy: sortBy,
