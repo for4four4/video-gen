@@ -1,5 +1,6 @@
 import axios from 'axios';
 import pool from '../db';
+import { getModelConfig } from '../config/models';
 
 const POLZA_API_BASE_URL = process.env.POLZA_API_BASE_URL || 'https://polza.ai/api';
 const POLZA_API_KEY = process.env.POLZA_API_KEY;
@@ -248,25 +249,49 @@ export const generateImage = async (options: {
   generate_audio?: boolean;
 }): Promise<any> => {
   try {
+    // Получаем конфигурацию модели для применения значений по умолчанию
+    const modelConfig = getModelConfig(options.model);
+    
     const requestBody: any = {
       model: options.model,
       prompt: options.prompt,
     };
 
-    // Добавляем опциональные параметры только если они переданы
+    // Добавляем опциональные параметры: используем переданные значения или дефолтные из конфига
     if (options.negativePrompt) requestBody.negative_prompt = options.negativePrompt;
     if (options.size) requestBody.size = options.size;
-    if (options.n) requestBody.n = options.n;
+    if (options.n !== undefined) requestBody.n = options.n;
+    else if (modelConfig?.defaults?.images) requestBody.n = modelConfig.defaults.images;
+    
     if (options.aspect_ratio) requestBody.aspect_ratio = options.aspect_ratio;
+    else if (modelConfig?.defaults?.aspect_ratio) requestBody.aspect_ratio = modelConfig.defaults.aspect_ratio;
+    
     if (options.image_resolution) requestBody.image_resolution = options.image_resolution;
+    else if (modelConfig?.defaults?.image_resolution) requestBody.image_resolution = modelConfig.defaults.image_resolution;
+    
     if (options.quality) requestBody.quality = options.quality;
+    else if (modelConfig?.defaults?.quality) requestBody.quality = modelConfig.defaults.quality;
+    
     if (options.seed !== undefined) requestBody.seed = options.seed;
+    else if (modelConfig?.defaults?.seed !== undefined) requestBody.seed = modelConfig.defaults.seed;
+    
     if (options.guidance_scale !== undefined) requestBody.guidance_scale = options.guidance_scale;
+    else if (modelConfig?.defaults?.guidance_scale !== undefined) requestBody.guidance_scale = modelConfig.defaults.guidance_scale;
+    
     if (options.enable_safety_checker !== undefined) requestBody.enable_safety_checker = options.enable_safety_checker;
+    else if (modelConfig?.defaults?.enable_safety_checker !== undefined) requestBody.enable_safety_checker = modelConfig.defaults.enable_safety_checker;
+    
     if (options.output_format) requestBody.output_format = options.output_format;
+    else if (modelConfig?.defaults?.output_format) requestBody.output_format = modelConfig.defaults.output_format;
+    
     if (options.upscale_factor) requestBody.upscale_factor = options.upscale_factor;
+    else if (modelConfig?.defaults?.upscale_factor) requestBody.upscale_factor = modelConfig.defaults.upscale_factor;
+    
     if (options.fixed_lens !== undefined) requestBody.fixed_lens = options.fixed_lens;
+    else if (modelConfig?.defaults?.fixed_lens !== undefined) requestBody.fixed_lens = modelConfig.defaults.fixed_lens;
+    
     if (options.generate_audio !== undefined) requestBody.generate_audio = options.generate_audio;
+    else if (modelConfig?.defaults?.generate_audio !== undefined) requestBody.generate_audio = modelConfig.defaults.generate_audio;
 
     const response = await axios.post(
       `${POLZA_API_BASE_URL}/v1/images/generations`,
