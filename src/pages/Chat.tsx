@@ -1,6 +1,6 @@
 import SiteLayout from "@/components/layout/SiteLayout";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Send,
   Image as ImageIcon,
@@ -14,10 +14,10 @@ import {
   History,
   Lightbulb,
   Keyboard,
+  Loader2,
 } from "lucide-react";
-import { MODELS } from "./Models";
-import showcase1 from "@/assets/showcase-1.jpg";
-import showcase3 from "@/assets/showcase-3.jpg";
+import { fetchChatModels, sendChatMessage, generateImage, generateVideo, fetchChatHistory, fetchUserBalance, type ChatModel, type ChatMessage as ApiChatMessage, type ChatSession as ApiChatSession } from "@/lib/chatApi";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -60,40 +60,6 @@ const TIPS = [
   "Негативные промпты убирают: lowres, watermark, deformed, extra fingers.",
 ];
 
-const seed: ChatSession[] = [
-  {
-    id: "c_demo",
-    title: "Новый чат",
-    updatedAt: Date.now(),
-    modelSlug: MODELS[0].slug,
-    messages: [
-      { role: "assistant", text: "Привет! Опишите, что хотите сгенерировать. Можно картинку или видео — выберите модель сверху.", model: "Imagination" },
-    ],
-  },
-  {
-    id: "c_1",
-    title: "Постеры для кофейни",
-    updatedAt: Date.now() - 86400000,
-    modelSlug: "midjourney-v7",
-    messages: [],
-    starred: true,
-  },
-  {
-    id: "c_2",
-    title: "Лого для стартапа",
-    updatedAt: Date.now() - 86400000 * 2,
-    modelSlug: "flux-pro",
-    messages: [],
-  },
-  {
-    id: "c_3",
-    title: "Видео-интро для канала",
-    updatedAt: Date.now() - 86400000 * 5,
-    modelSlug: "sora",
-    messages: [],
-  },
-];
-
 const formatDate = (ts: number) => {
   const diff = Date.now() - ts;
   if (diff < 86400000) return "сегодня";
@@ -106,17 +72,71 @@ const Chat = () => {
     document.title = "Чат — Imagination AI";
   }, []);
 
-  const [sessions, setSessions] = useState<ChatSession[]>(seed);
-  const [activeId, setActiveId] = useState<string>(seed[0].id);
+  const [models, setModels] = useState<ChatModel[]>([]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
   const [promptOpen, setPromptOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [tipsOpen, setTipsOpen] = useState(false);
   const [promptCat, setPromptCat] = useState<string>("Все");
+  const [balance, setBalance] = useState({ points: 0, rubles: 0 });
+  const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
 
-  const active = sessions.find(s => s.id === activeId)!;
-  const model = MODELS.find(m => m.slug === active.modelSlug) ?? MODELS[0];
+  // Загрузка моделей и сессий при старте
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const [loadedModels, history, userBalance] = await Promise.all([
+          fetchChatModels(),
+          fetchChatHistory().catch(() => []),
+          fetchUserBalance().catch(() => ({ points: 50, rubles: 50 })),
+        ]);
+        setModels(loadedModels.filter(m => m.enabled));
+        setBalance(userBalance);
+        
+        if (history.length > 0) {
+          const converted = history.map(s => ({
+            ...s,
+            updatedAt: new Date(s.updatedAt).getTime(),
+            messages: s.messages.map(m => ({
+              role: m.role,
+              text: m.content,
+              image: m.image,
+              model: m.model,
+              cost: m.cost,
+            })),
+          }));
+          setSessions(converted);
+          setActiveId(converted[0].id);
+        } else {
+          // Создаем демо-сессию если история пуста
+          const demo: ChatSession = {
+            id: `c_${Date.now()}`,
+            title: "Новый чат",
+            updatedAt: Date.now(),
+            modelSlug: loadedModels[0]?.slug || "",
+            messages: [
+              { role: "assistant", text: "Привет! Опишите, что хотите сгенерировать. Можно картинку или видео — выберите модель сверху.", model: "Imagination" },
+            ],
+          };
+          setSessions([demo]);
+          setActiveId(demo.id);
+        }
+      } catch (err) {
+        console.error("Failed to initialize chat:", err);
+        toast.error("Ошибка загрузки данных");
+      } finally {
+        setInitializing(false);
+      }
+    };
+    init();
+  }, []);
+
+  const active = sessions.find(s => s.id === activeId);
+  const model = models.find(m => m.slug === active?.modelSlug) ?? models[0];
 
   const setActive = (patch: Partial<ChatSession>) => {
     setSessions(curr => curr.map(s => (s.id === activeId ? { ...s, ...patch, updatedAt: Date.now() } : s)));
@@ -137,51 +157,88 @@ const Chat = () => {
     setActiveId(id);
   };
 
-  const deleteChat = (id: string) => {
-    setSessions(curr => {
-      const next = curr.filter(s => s.id !== id);
-      if (id === activeId && next.length) setActiveId(next[0].id);
-      return next.length ? next : seed.slice(0, 1);
-    });
+  const deleteChat = async (id: string) => {
+    try {
+      await fetch(`/api/chat/session/${id}`, { method: "DELETE" });
+      setSessions(curr => {
+        const next = curr.filter(s => s.id !== id);
+        if (id === activeId && next.length) setActiveId(next[0].id);
+        return next.length ? next : [];
+      });
+      toast.success("Чат удален");
+    } catch (err) {
+      toast.error("Ошибка удаления");
+    }
   };
 
   const toggleStar = (id: string) => {
     setSessions(curr => curr.map(s => (s.id === id ? { ...s, starred: !s.starred } : s)));
   };
 
-  const send = (text?: string) => {
+  const send = useCallback(async (text?: string) => {
     const prompt = (text ?? input).trim();
-    if (!prompt) return;
+    if (!prompt || !model || loading) return;
+    
+    setLoading(true);
     setInput("");
     const userMsg: Msg = { role: "user", text: prompt };
-    const isFirstUserMsg = !active.messages.some(m => m.role === "user");
+    const isFirstUserMsg = !active?.messages.some(m => m.role === "user");
+    
+    // Optimistic update
     setActive({
-      messages: [...active.messages, userMsg],
-      title: isFirstUserMsg ? prompt.slice(0, 40) : active.title,
+      messages: [...(active?.messages || []), userMsg],
+      title: isFirstUserMsg ? prompt.slice(0, 40) : (active?.title || "Чат"),
     });
-    setTimeout(() => {
+
+    try {
+      let result;
+      if (model.type === "chat") {
+        result = await sendChatMessage({ modelSlug: model.slug, message: prompt, sessionId: activeId });
+      } else if (model.type === "image") {
+        result = await generateImage({ modelSlug: model.slug, prompt });
+      } else if (model.type === "video") {
+        result = await generateVideo({ modelSlug: model.slug, prompt });
+      }
+
+      if (result) {
+        // Обновляем баланс
+        setBalance(prev => ({ ...prev, points: prev.points - result.cost }));
+        
+        const assistantMsg: Msg = {
+          role: "assistant",
+          text: result.messages?.[0]?.content || "Готово!",
+          image: result.result,
+          model: model.name,
+          cost: result.cost,
+        };
+
+        setSessions(curr =>
+          curr.map(s =>
+            s.id === activeId
+              ? {
+                  ...s,
+                  updatedAt: Date.now(),
+                  messages: [...s.messages, assistantMsg],
+                }
+              : s,
+          ),
+        );
+      }
+    } catch (err) {
+      console.error("Generation error:", err);
+      toast.error(err instanceof Error ? err.message : "Ошибка генерации");
+      // Откат сообщения пользователя при ошибке
       setSessions(curr =>
         curr.map(s =>
           s.id === activeId
-            ? {
-                ...s,
-                updatedAt: Date.now(),
-                messages: [
-                  ...s.messages,
-                  {
-                    role: "assistant",
-                    text: "Готово! Это демо-результат. После подключения polza.ai тут появится реальная генерация.",
-                    image: Math.random() > 0.5 ? showcase1 : showcase3,
-                    model: model.name,
-                    cost: model.pricePoints,
-                  },
-                ],
-              }
+            ? { ...s, messages: s.messages.slice(0, -1) }
             : s,
         ),
       );
-    }, 800);
-  };
+    } finally {
+      setLoading(false);
+    }
+  }, [input, model, loading, active, activeId]);
 
   const usePrompt = (p: Prompt) => {
     setPromptOpen(false);
@@ -199,6 +256,42 @@ const Chat = () => {
 
   const promptCategories = ["Все", ...Array.from(new Set(PROMPT_LIBRARY.map(p => p.category)))];
   const visiblePrompts = promptCat === "Все" ? PROMPT_LIBRARY : PROMPT_LIBRARY.filter(p => p.category === promptCat);
+
+  if (initializing) {
+    return (
+      <SiteLayout>
+        <section className="py-10">
+          <div className="container max-w-7xl">
+            <div className="flex items-center justify-center min-h-[60vh]">
+              <div className="text-center">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-accent" />
+                <p className="text-muted-foreground">Загрузка...</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </SiteLayout>
+    );
+  }
+
+  if (!active || !model) {
+    return (
+      <SiteLayout>
+        <section className="py-10">
+          <div className="container max-w-7xl">
+            <div className="flex items-center justify-center min-h-[60vh]">
+              <div className="text-center">
+                <p className="text-muted-foreground mb-4">Нет доступных чатов</p>
+                <Button variant="hero" onClick={newChat}>
+                  <Plus className="h-4 w-4 mr-2" /> Создать чат
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </SiteLayout>
+    );
+  }
 
   return (
     <SiteLayout>
@@ -265,7 +358,7 @@ const Chat = () => {
               <div className="p-4 border-t border-white/5">
                 <div className="rounded-xl border border-accent/20 bg-accent/5 p-3">
                   <p className="text-xs text-muted-foreground mb-1">Баланс</p>
-                  <p className="font-display text-2xl">50 <span className="text-sm text-muted-foreground">поинтов</span></p>
+                  <p className="font-display text-2xl">{balance.points} <span className="text-sm text-muted-foreground">поинтов</span></p>
                   <Button asChild size="sm" variant="outlineGlow" className="w-full mt-3">
                     <a href="/dashboard">Пополнить</a>
                   </Button>
@@ -281,20 +374,32 @@ const Chat = () => {
                   <Sparkles className="h-4 w-4 text-accent" />
                   <span className="text-sm">Модель:</span>
                   <select
-                    value={model.slug}
+                    value={model?.slug || ""}
                     onChange={e => setActive({ modelSlug: e.target.value })}
                     className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-accent/50"
+                    disabled={!models.length || loading}
                   >
-                    <optgroup label="Изображения">
-                      {MODELS.filter(m => m.type === "image").map(m => (
-                        <option key={m.slug} value={m.slug}>{m.name} — {m.pricePoints} пт</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Видео">
-                      {MODELS.filter(m => m.type === "video").map(m => (
-                        <option key={m.slug} value={m.slug}>{m.name} — {m.pricePoints} пт</option>
-                      ))}
-                    </optgroup>
+                    {models.filter(m => m.type === "image").length > 0 && (
+                      <optgroup label="Изображения">
+                        {models.filter(m => m.type === "image").map(m => (
+                          <option key={m.slug} value={m.slug}>{m.name} — {m.pricePoints} пт</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {models.filter(m => m.type === "video").length > 0 && (
+                      <optgroup label="Видео">
+                        {models.filter(m => m.type === "video").map(m => (
+                          <option key={m.slug} value={m.slug}>{m.name} — {m.pricePoints} пт</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {models.filter(m => m.type === "chat").length > 0 && (
+                      <optgroup label="Чат">
+                        {models.filter(m => m.type === "chat").map(m => (
+                          <option key={m.slug} value={m.slug}>{m.name} — {m.pricePoints} пт</option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
                 <div className="flex items-center gap-3">
@@ -305,7 +410,7 @@ const Chat = () => {
                     <BookOpen className="h-3.5 w-3.5" /> Промпты
                   </button>
                   <span className="text-sm text-muted-foreground">
-                    Баланс: <span className="text-foreground font-medium">50 пт</span>
+                    Баланс: <span className="text-foreground font-medium">{balance.points} пт</span>
                   </span>
                 </div>
               </div>
