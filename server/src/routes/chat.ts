@@ -14,6 +14,7 @@ import {
   getUserChatHistory,
   clearCoefficientsCache,
 } from '../services/polza';
+import { getModelConfig } from '../config/models';
 
 const router = Router();
 
@@ -95,6 +96,14 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
       return res.status(400).json({ error: 'Model and prompt are required' });
     }
 
+    // Получаем конфигурацию модели и применяем значения по умолчанию
+    const modelConfig = getModelConfig(actualModel);
+    const finalAspectRatio = aspect_ratio || (modelConfig?.defaults?.aspect_ratio as string) || '1:1';
+    const finalImageResolution = image_resolution || (modelConfig?.defaults?.image_resolution as string);
+    const finalQuality = quality || (modelConfig?.defaults?.quality as string);
+    const finalOutputFormat = output_format || (modelConfig?.defaults?.output_format as string);
+    const finalN = n || (modelConfig?.defaults?.images as number) || 1;
+
     const userId = req.user!.id;
 
     // Проверяем баланс пользователя из БД
@@ -121,14 +130,14 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
       prompt,
       negativePrompt,
       size,
-      n,
-      aspect_ratio,
-      image_resolution,
-      quality,
+      n: finalN,
+      aspect_ratio: finalAspectRatio,
+      image_resolution: finalImageResolution,
+      quality: finalQuality,
       seed,
       guidance_scale,
       enable_safety_checker,
-      output_format,
+      output_format: finalOutputFormat,
     });
 
     // Списываем баллы

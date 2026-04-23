@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("./auth");
 const polza_1 = require("../services/polza");
+const models_1 = require("../config/models");
 const router = (0, express_1.Router)();
 // POST /api/chat/send - Отправить сообщение в чат
 router.post('/send', auth_1.authMiddleware, async (req, res) => {
@@ -67,11 +68,18 @@ router.post('/send', auth_1.authMiddleware, async (req, res) => {
 // POST /api/chat/image - Сгенерировать изображение
 router.post('/image', auth_1.authMiddleware, async (req, res) => {
     try {
-        const { model, modelSlug, prompt, negativePrompt, size } = req.body;
+        const { model, modelSlug, prompt, negativePrompt, size, aspect_ratio, image_resolution, quality, seed, guidance_scale, enable_safety_checker, output_format, n } = req.body;
         const actualModel = model || modelSlug;
         if (!actualModel || !prompt) {
             return res.status(400).json({ error: 'Model and prompt are required' });
         }
+        // Получаем конфигурацию модели и применяем значения по умолчанию
+        const modelConfig = (0, models_1.getModelConfig)(actualModel);
+        const finalAspectRatio = aspect_ratio || modelConfig?.defaults?.aspect_ratio || '1:1';
+        const finalImageResolution = image_resolution || modelConfig?.defaults?.image_resolution;
+        const finalQuality = quality || modelConfig?.defaults?.quality;
+        const finalOutputFormat = output_format || modelConfig?.defaults?.output_format;
+        const finalN = n || modelConfig?.defaults?.images || 1;
         const userId = req.user.id;
         // Проверяем баланс пользователя из БД
         const balance = await (0, polza_1.getUserBalance)(userId);
@@ -93,6 +101,14 @@ router.post('/image', auth_1.authMiddleware, async (req, res) => {
             prompt,
             negativePrompt,
             size,
+            n: finalN,
+            aspect_ratio: finalAspectRatio,
+            image_resolution: finalImageResolution,
+            quality: finalQuality,
+            seed,
+            guidance_scale,
+            enable_safety_checker,
+            output_format: finalOutputFormat,
         });
         // Списываем баллы
         await (0, polza_1.deductUserBalance)(userId, pointsCost);

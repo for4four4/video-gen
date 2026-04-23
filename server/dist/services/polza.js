@@ -190,13 +190,38 @@ exports.sendChatMessage = sendChatMessage;
 // Сгенерировать изображение
 const generateImage = async (options) => {
     try {
-        const response = await axios_1.default.post(`${POLZA_API_BASE_URL}/v1/images/generations`, {
+        const requestBody = {
             model: options.model,
             prompt: options.prompt,
-            negative_prompt: options.negativePrompt,
-            size: options.size || '1024x1024',
-            n: options.n || 1,
-        }, {
+        };
+        // Добавляем опциональные параметры только если они переданы
+        if (options.negativePrompt)
+            requestBody.negative_prompt = options.negativePrompt;
+        if (options.size)
+            requestBody.size = options.size;
+        if (options.n)
+            requestBody.n = options.n;
+        if (options.aspect_ratio)
+            requestBody.aspect_ratio = options.aspect_ratio;
+        if (options.image_resolution)
+            requestBody.image_resolution = options.image_resolution;
+        if (options.quality)
+            requestBody.quality = options.quality;
+        if (options.seed !== undefined)
+            requestBody.seed = options.seed;
+        if (options.guidance_scale !== undefined)
+            requestBody.guidance_scale = options.guidance_scale;
+        if (options.enable_safety_checker !== undefined)
+            requestBody.enable_safety_checker = options.enable_safety_checker;
+        if (options.output_format)
+            requestBody.output_format = options.output_format;
+        if (options.upscale_factor)
+            requestBody.upscale_factor = options.upscale_factor;
+        if (options.fixed_lens !== undefined)
+            requestBody.fixed_lens = options.fixed_lens;
+        if (options.generate_audio !== undefined)
+            requestBody.generate_audio = options.generate_audio;
+        const response = await axios_1.default.post(`${POLZA_API_BASE_URL}/v1/images/generations`, requestBody, {
             headers: {
                 'Content-Type': 'application/json',
                 ...(POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {}),
