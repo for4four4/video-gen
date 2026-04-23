@@ -62,10 +62,10 @@ export const getUserBalance = async (userId: string): Promise<number> => {
 // Списать баллы у пользователя
 export const deductUserBalance = async (userId: string, amount: number): Promise<void> => {
   const client = await pool.connect();
-  
+
   try {
     await client.query('BEGIN');
-    
+
     // Проверка баланса
     const balanceResult = await client.query(
       'SELECT points_balance FROM users WHERE id = $1 FOR UPDATE',
@@ -102,14 +102,14 @@ export const syncModelsFromPolza = async (): Promise<number> => {
     // Формируем URL вручную для корректной передачи массива type
     const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
     const queryParams = new URLSearchParams();
-    
+
     // Добавляем каждый тип как отдельный параметр
     queryParams.append('type', 'image');
     queryParams.append('type', 'video');
     queryParams.append('limit', '500');
-    
+
     const url = `${baseUrl}?${queryParams.toString()}`;
-    
+
     const response = await axios.get(url, {
       headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
     });
@@ -138,7 +138,7 @@ export const syncModelsFromPolza = async (): Promise<number> => {
       await pool.query(`
         INSERT INTO model_coefficients (slug, name, vendor, type, base_price_usd, coefficient, enabled)
         VALUES ($1, $2, $3, $4, $5, 1.5, TRUE)
-        ON CONFLICT (slug) DO UPDATE SET 
+        ON CONFLICT (slug) DO UPDATE SET
           name = EXCLUDED.name,
           vendor = EXCLUDED.vendor,
           type = EXCLUDED.type,
@@ -172,21 +172,21 @@ export const getModelsCatalog = async (params?: {
     // Формируем URL вручную для корректной передачи массива type
     const baseUrl = `${POLZA_API_BASE_URL}/v1/models/catalog`;
     const queryParams = new URLSearchParams();
-    
+
     if (params?.search) queryParams.append('search', params.search);
-    
+
     // Добавляем каждый тип как отдельный параметр
     const types = params?.type || ['image', 'video'];
     types.forEach(type => queryParams.append('type', type));
-    
+
     queryParams.append('page', String(params?.page || 1));
     queryParams.append('limit', String(params?.limit || 50));
-    
+
     if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
     if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder);
-    
+
     const url = `${baseUrl}?${queryParams.toString()}`;
-    
+
     const response = await axios.get(url, {
       headers: POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {},
     });
@@ -229,7 +229,7 @@ export const sendChatMessage = async (options: {
   }
 };
 
-// Сгенерировать изображение
+// Сгенерировать изображение через Media API
 export const generateImage = async (options: {
   model: string;
   prompt: string;
@@ -238,14 +238,15 @@ export const generateImage = async (options: {
   n?: number;
 }): Promise<any> => {
   try {
-    const response = await axios.post(
-      `${POLZA_API_BASE_URL}/v1/images/generations`,
+    // Шаг 1: Создаем генерацию через POST /v1/media
+    const createResponse = await axios.post(
+      `${POLZA_API_BASE_URL}/v1/media`,
       {
         model: options.model,
-        prompt: options.prompt,
-        negative_prompt: options.negativePrompt,
-        size: options.size || '1024x1024',
-        n: options.n || 1,
+        input: {
+          prompt: options.prompt,
+          aspect_ratio: options.size || '1:1',
+        },
       },
       {
         headers: {
@@ -255,7 +256,45 @@ export const generateImage = async (options: {
       }
     );
 
-    return response.data;
+    const generationId = createResponse.data.id;
+    
+    // Шаг 2: Polling - ждем завершения генерации
+    let statusResponse = createResponse.data;
+    const maxAttempts = 60; // Максимум 60 попыток (5 минут при интервале 5 сек)
+    const pollInterval = 5000; // 5 секунд
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (statusResponse.status === 'completed') {
+        // Извлекаем URL изображения из data.url
+        const imageUrl = statusResponse.data?.url;
+        if (!imageUrl) {
+          throw new Error('Image URL not found in response');
+        }
+        return {
+          ...statusResponse,
+          imageUrl,
+        };
+      }
+      
+      if (statusResponse.status === 'failed') {
+        throw new Error(statusResponse.error?.message || 'Image generation failed');
+      }
+      
+      // Ждем перед следующей проверкой
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      
+      // Проверяем статус через GET /v1/media/{id}
+      statusResponse = await axios.get(
+        `${POLZA_API_BASE_URL}/v1/media/${generationId}`,
+        {
+          headers: {
+            ...(POLZA_API_KEY ? { 'Authorization': `Bearer ${POLZA_API_KEY}` } : {}),
+          },
+        }
+      ).then(r => r.data);
+    }
+    
+    throw new Error('Image generation timeout');
   } catch (error: any) {
     console.error('Error generating image:', error.response?.data || error.message);
     throw error;
