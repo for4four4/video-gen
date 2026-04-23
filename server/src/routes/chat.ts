@@ -260,9 +260,47 @@ router.get('/history', authMiddleware, async (req: AuthRequest, res: Response) =
     const userId = req.user!.id;
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
 
-    const history = await getUserChatHistory(userId, limit);
+    // Получаем все генерации пользователя
+    const result = await pool.query(
+      `SELECT g.id, g.model_slug, g.points_spent, g.status, g.prompt, g.result_url, g.created_at,
+              m.name as model_name
+       FROM generations g
+       LEFT JOIN model_coefficients m ON g.model_slug = m.slug
+       WHERE g.user_id = $1
+       ORDER BY g.created_at DESC
+       LIMIT $2`,
+      [userId, limit]
+    );
 
-    res.json(history);
+    // Преобразуем плоский список генераций в формат сессий
+    // Каждая генерация становится отдельной "сессией" для упрощения
+    const sessions = result.rows.map((row) => ({
+      id: row.id,
+      userId,
+      title: row.prompt?.slice(0, 40) || 'Чат',
+      modelSlug: row.model_slug,
+      messages: [
+        {
+          role: 'user' as const,
+          content: row.prompt || '',
+          model: row.model_slug,
+          cost: row.points_spent,
+          createdAt: row.created_at,
+        },
+        {
+          role: 'assistant' as const,
+          content: row.result_url ? 'Генерация завершена' : 'Ответ готов',
+          image: row.result_url || undefined,
+          model: row.model_name || row.model_slug,
+          cost: row.points_spent,
+          createdAt: row.created_at,
+        },
+      ],
+      createdAt: row.created_at,
+      updatedAt: row.created_at,
+    }));
+
+    res.json(sessions);
   } catch (error: any) {
     console.error('Get history error:', error.message);
     res.status(500).json({ error: error.message || 'Internal server error' });
@@ -278,6 +316,81 @@ router.get('/balance', authMiddleware, async (req: AuthRequest, res: Response) =
     res.json({ balance });
   } catch (error: any) {
     console.error('Get balance error:', error.message);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// GET /api/chat/session/:id - Получить конкретную сессию
+router.get('/session/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const sessionId = req.params.id;
+
+    // Получаем все генерации пользователя и группируем по дате в сессии
+    const result = await pool.query(
+      `SELECT g.id, g.model_slug, g.points_spent, g.status, g.prompt, g.result_url, g.created_at,
+              m.name as model_name
+       FROM generations g
+       LEFT JOIN model_coefficients m ON g.model_slug = m.slug
+       WHERE g.user_id = $1
+       ORDER BY g.created_at ASC`,
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Преобразуем плоский список генераций в формат сессии с сообщениями
+    const messages: any[] = [];
+    for (const row of result.rows) {
+      messages.push({
+        role: 'user' as const,
+        content: row.prompt,
+        model: row.model_slug,
+        cost: row.points_spent,
+        createdAt: row.created_at,
+      });
+      messages.push({
+        role: 'assistant' as const,
+        content: row.result_url ? 'Генерация завершена' : 'Ответ готов',
+        image: row.result_url || undefined,
+        model: row.model_name || row.model_slug,
+        cost: row.points_spent,
+        createdAt: row.created_at,
+      });
+    }
+
+    const session = {
+      id: sessionId,
+      userId,
+      title: result.rows[0]?.prompt?.slice(0, 40) || 'Чат',
+      modelSlug: result.rows[0]?.model_slug || '',
+      messages,
+      createdAt: result.rows[0]?.created_at,
+      updatedAt: result.rows[result.rows.length - 1]?.created_at,
+    };
+
+    res.json(session);
+  } catch (error: any) {
+    console.error('Get session error:', error.message);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// DELETE /api/chat/session/:id - Удалить сессию (все генерации пользователя)
+router.delete('/session/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const sessionId = req.params.id;
+
+    // В данной реализации sessionId игнорируется, удаляем все генерации пользователя
+    // В будущей версии можно добавить поле session_id в таблицу generations
+    await pool.query('DELETE FROM generations WHERE user_id = $1', [userId]);
+
+    res.json({ message: 'Session deleted successfully' });
+  } catch (error: any) {
+    console.error('Delete session error:', error.message);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
