@@ -136,7 +136,7 @@ const Chat = () => {
   }, []);
 
   const active = sessions.find(s => s.id === activeId);
-  const model = models.find(m => m.slug === active?.modelSlug) ?? models[0];
+  const model = models.find(m => m.slug === active?.modelSlug) || models.find(m => m.type === "image") || models.find(m => m.type === "video") || models[0];
 
   const setActive = (patch: Partial<ChatSession>) => {
     setSessions(curr => curr.map(s => (s.id === activeId ? { ...s, ...patch, updatedAt: Date.now() } : s)));
@@ -148,11 +148,13 @@ const Chat = () => {
       return;
     }
     const id = `c_${Date.now()}`;
+    // Выбираем первую доступную модель (image или video)
+    const defaultModel = models.find(m => m.type === "image") || models.find(m => m.type === "video") || models[0];
     const fresh: ChatSession = {
       id,
       title: "Новый чат",
       updatedAt: Date.now(),
-      modelSlug: models[0].slug,
+      modelSlug: defaultModel.slug,
       messages: [
         { role: "assistant", text: "Новый чат начат. Что генерируем?", model: "Imagination" },
       ],
