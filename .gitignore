@@ -1,6 +1,12 @@
-```
-# Build artifacts
+*.txt
+*.zip
+*.img
+*.mp4
 dist/
+server/dist/
+package-lock.json
+
+# Build artifacts
 build/
 *.o
 *.obj
@@ -32,4 +38,3 @@ __pycache__/
 # OS generated files
 .DS_Store
 Thumbs.db
-```

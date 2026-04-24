@@ -1,39 +1,249 @@
 import SiteLayout from "@/components/layout/SiteLayout";
 import { Link, useParams } from "react-router-dom";
-import { useEffect } from "react";
-import { Calendar } from "lucide-react";
+import { useEffect, useState } from "react";
 
-export type Post = { slug: string; title: string; excerpt: string; content: string; date: string; category: string };
+// ─── Data ─────────────────────────────────────────────────────────────────
+export type Post = {
+  slug: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  date: string;
+  category: string;
+  read: number;
+  author: string;
+  featured?: boolean;
+};
 
 export const BLOG_POSTS: Post[] = [
-  { slug: "midjourney-vs-flux", title: "Midjourney vs Flux: что выбрать в 2025", excerpt: "Сравниваем две топовые модели по качеству, скорости и цене.", content: "Midjourney v7 остаётся эталоном художественности, но Flux Pro выигрывает в скорости и детализации мелких объектов. В этой статье разберём, в каких сценариях какая модель лучше...", date: "2025-04-01", category: "Сравнения" },
-  { slug: "video-ai-guide", title: "Гид по видео-нейросетям: Sora, Veo, Kling", excerpt: "Полный обзор актуальных моделей для генерации видео.", content: "Sora от OpenAI задаёт стандарт кинематографичности, Veo 3 добавляет звук, а Kling 2 лидирует по плавности движений...", date: "2025-03-25", category: "Гайды" },
-  { slug: "prompt-engineering", title: "Промпт-инжиниринг для изображений", excerpt: "Как правильно описывать сцены, чтобы получать нужный результат.", content: "Хороший промпт — это 80% успеха. Структурируйте описание: субъект, действие, окружение, стиль, освещение, ракурс...", date: "2025-03-18", category: "Туториалы" },
-  { slug: "commercial-use", title: "Можно ли использовать AI-арт коммерчески", excerpt: "Разбираемся с правами на генерации.", content: "В Imagination все права на сгенерированные материалы передаются пользователю. Но есть нюансы по моделям...", date: "2025-03-10", category: "Право" },
+  {
+    slug: "midjourney-vs-flux",
+    title: "Midjourney vs Flux: что выбрать в 2025",
+    excerpt: "Сравниваем две топовые модели по качеству, скорости и цене. 20 генераций одного промпта, разбор артефактов и вердикт.",
+    content: "Midjourney v7 остаётся эталоном художественности, но Flux Pro выигрывает в скорости и детализации мелких объектов...",
+    date: "2025-04-01",
+    category: "Сравнения",
+    read: 8,
+    author: "Лена Орлова",
+    featured: true,
+  },
+  {
+    slug: "video-ai-guide",
+    title: "Гид по видео-нейросетям: Sora, Veo, Kling",
+    excerpt: "Полный обзор актуальных моделей для генерации видео — где лучше движение, где звук, где сюжет.",
+    content: "Sora от OpenAI задаёт стандарт кинематографичности, Veo 3 добавляет звук...",
+    date: "2025-03-25",
+    category: "Гайды",
+    read: 12,
+    author: "Дима Лавров",
+  },
+  {
+    slug: "prompt-engineering",
+    title: "Промпт-инжиниринг для изображений",
+    excerpt: "Как структурировать описание сцены, чтобы получать именно то, что задумано.",
+    content: "Хороший промпт — это 80% успеха. Структурируйте описание: субъект, действие, окружение...",
+    date: "2025-03-18",
+    category: "Туториалы",
+    read: 6,
+    author: "Аня Верт",
+  },
+  {
+    slug: "commercial-use",
+    title: "Можно ли использовать AI-арт коммерчески",
+    excerpt: "Разбираемся с правами на генерации — что можно, что нельзя, какие модели накладывают ограничения.",
+    content: "В Imagination все права на сгенерированные материалы передаются пользователю...",
+    date: "2025-03-10",
+    category: "Право",
+    read: 5,
+    author: "Юр. отдел",
+  },
+  {
+    slug: "lighting-recipes",
+    title: "10 рецептов освещения в промптах",
+    excerpt: "Готовые формулы, которые превращают плоскую картинку в постер.",
+    content: "Освещение — одна из самых мощных составляющих промпта...",
+    date: "2025-03-02",
+    category: "Туториалы",
+    read: 9,
+    author: "Лена Орлова",
+  },
+  {
+    slug: "aspect-ratios",
+    title: "Какое соотношение сторон выбрать",
+    excerpt: "21:9 для кино, 4:5 для Instagram, 9:16 для Reels. Когда и почему.",
+    content: "Соотношение сторон — первое, что стоит настроить перед генерацией...",
+    date: "2025-02-24",
+    category: "Гайды",
+    read: 4,
+    author: "Дима Лавров",
+  },
 ];
 
+// ─── Gradient placeholder ─────────────────────────────────────────────────
+const GRADIENTS = [
+  "linear-gradient(135deg, #2a1b4e 0%, #6b2a8a 40%, #c65d8e 100%)",
+  "linear-gradient(145deg, #0f2a44 0%, #2e6ca8 50%, #a8d8e8 100%)",
+  "linear-gradient(135deg, #1a1a1a 0%, #3d2817 50%, #c6833f 100%)",
+  "linear-gradient(140deg, #0d2818 0%, #2d6b47 50%, #9fd4a8 100%)",
+  "linear-gradient(135deg, #2a0a1c 0%, #8a2a4e 50%, #f4a5c0 100%)",
+  "linear-gradient(150deg, #1c1c2e 0%, #4a4a7a 50%, #b0b0d0 100%)",
+];
+const gradFor = (seed: string) => {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h * 31 + seed.charCodeAt(i)) >>> 0);
+  return GRADIENTS[h % GRADIENTS.length];
+};
+const Placeholder = ({ seed, aspect = "1/1", className = "" }: {
+  seed: string; aspect?: string; className?: string;
+}) => (
+  <div className={`relative overflow-hidden ${className}`} style={{ aspectRatio: aspect, background: gradFor(seed) }}>
+    <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: "repeating-linear-gradient(135deg, rgba(255,255,255,0.5) 0 1px, transparent 1px 8px)" }} />
+  </div>
+);
+
+// ─── BlogList — V2: editorial asymmetric list ─────────────────────────────
 export const BlogList = () => {
   useEffect(() => { document.title = "Блог — Imagination AI"; }, []);
+
+  const [hover, setHover] = useState<string | null>(null);
+  const featured = BLOG_POSTS[0];
+  const rest = BLOG_POSTS.slice(1);
+
   return (
     <SiteLayout ambient="blog">
-      <section className="py-20">
-        <div className="container max-w-5xl">
-          <div className="text-center mb-16">
-            <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground mb-4">Блог</p>
-            <h1 className="font-display text-5xl md:text-7xl tracking-tight">
-              Идеи и <span className="italic text-gradient-brand">инсайты</span>
-            </h1>
+      <section className="relative py-20">
+        <div className="max-w-[1200px] mx-auto px-10">
+
+          {/* ── Masthead ── */}
+          <div className="pb-8 mb-10" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
+            <div className="flex items-end justify-between">
+              <div>
+                <div
+                  className="text-[10px] tracking-[0.4em] uppercase mb-3"
+                  style={{ color: "rgba(250,250,250,0.42)" }}
+                >
+                  Vol. 04 · 2025 · Журнал Imagination
+                </div>
+                <h1
+                  className="font-display tracking-tight leading-[0.9]"
+                  style={{ fontSize: "clamp(72px, 9vw, 120px)", fontWeight: 400 }}
+                >
+                  The<br />
+                  <em className="text-accent not-italic">Journal</em>
+                </h1>
+              </div>
+              <div className="text-right text-[13px]" style={{ color: "hsl(var(--muted-foreground))" }}>
+                <div className="mb-1">{BLOG_POSTS.length} материалов</div>
+                <div>обновлено {BLOG_POSTS[0].date}</div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            {BLOG_POSTS.map(p => (
-              <Link key={p.slug} to={`/blog/${p.slug}`} className="group rounded-2xl border border-white/10 bg-card p-6 hover:border-accent/40 transition-all">
-                <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3">
-                  <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10">{p.category}</span>
-                  <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{p.date}</span>
+          {/* ── Featured — horizontal band ── */}
+          <Link to={`/blog/${featured.slug}`} className="block group mb-16">
+            <div className="flex items-start gap-8">
+              <div className="flex-1">
+                <div
+                  className="text-[10px] tracking-[0.3em] uppercase mb-4"
+                  style={{ color: "hsl(var(--accent))" }}
+                >
+                  → Сегодня читают
                 </div>
-                <h2 className="font-display text-2xl mb-2 group-hover:text-accent transition-colors">{p.title}</h2>
-                <p className="text-sm text-muted-foreground">{p.excerpt}</p>
+                <h2
+                  className="font-display tracking-tight leading-[0.98] mb-6 transition-colors group-hover:text-accent"
+                  style={{ fontSize: "clamp(40px, 5vw, 64px)", fontWeight: 400 }}
+                >
+                  {featured.title}
+                </h2>
+                <p className="text-[17px] leading-relaxed max-w-xl mb-6" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {featured.excerpt}
+                </p>
+                <div className="flex items-center gap-4 text-[12px]" style={{ color: "rgba(250,250,250,0.42)" }}>
+                  <span>{featured.author}</span>
+                  <span>·</span>
+                  <span>{featured.category}</span>
+                  <span>·</span>
+                  <span>{featured.read} мин</span>
+                  <span>·</span>
+                  <span>{featured.date}</span>
+                </div>
+              </div>
+              <Placeholder
+                seed={featured.slug + "v2"}
+                aspect="3/4"
+                className="w-[300px] shrink-0"
+                // intentionally tight border-radius per spec (журнальное фото)
+              />
+            </div>
+          </Link>
+
+          {/* ── Divider ── */}
+          <div className="flex items-center gap-4 mb-8">
+            <span className="text-[11px] tracking-[0.3em] uppercase" style={{ color: "rgba(250,250,250,0.42)" }}>
+              Все материалы
+            </span>
+            <div className="flex-1 h-px" style={{ background: "hsl(var(--border))" }} />
+            <span className="text-[11px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>
+              {String(rest.length).padStart(2, "0")} / {String(BLOG_POSTS.length).padStart(2, "0")}
+            </span>
+          </div>
+
+          {/* ── Row list ── */}
+          <div style={{ borderBottom: "1px solid hsl(var(--border))" }}>
+            {rest.map((p, i) => (
+              <Link
+                key={p.slug}
+                to={`/blog/${p.slug}`}
+                className="grid gap-6 py-7 items-center cursor-pointer transition-colors"
+                style={{
+                  gridTemplateColumns: "1fr 7fr 2fr 2fr",
+                  borderTop: "1px solid hsl(var(--border))",
+                }}
+                onMouseEnter={() => setHover(p.slug)}
+                onMouseLeave={() => setHover(null)}
+              >
+                {/* Number */}
+                <span className="text-[11px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>
+                  {String(i + 2).padStart(2, "0")}
+                </span>
+
+                {/* Title + excerpt */}
+                <div>
+                  <h3
+                    className="font-display tracking-tight transition-all"
+                    style={{
+                      fontSize: 32,
+                      fontWeight: 400,
+                      lineHeight: 1.1,
+                      color: hover === p.slug ? "hsl(var(--accent))" : "hsl(var(--foreground))",
+                      fontStyle: hover === p.slug ? "italic" : "normal",
+                    }}
+                  >
+                    {p.title}
+                  </h3>
+                  <p className="mt-2 text-[13px] max-w-lg" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {p.excerpt}
+                  </p>
+                </div>
+
+                {/* Category + meta */}
+                <div className="text-[11px]" style={{ color: "rgba(250,250,250,0.42)" }}>
+                  <div className="uppercase tracking-widest mb-1" style={{ color: "hsl(var(--muted-foreground))" }}>
+                    {p.category}
+                  </div>
+                  <div>{p.read} мин · {p.author}</div>
+                </div>
+
+                {/* Thumbnail */}
+                <Placeholder
+                  seed={p.slug + "v2"}
+                  aspect="4/3"
+                  className="rounded transition-all"
+                  style={{
+                    opacity: hover === p.slug ? 1 : 0.6,
+                    transform: hover === p.slug ? "scale(1.03)" : "scale(1)",
+                  } as React.CSSProperties}
+                />
               </Link>
             ))}
           </div>
@@ -43,28 +253,44 @@ export const BlogList = () => {
   );
 };
 
+// ─── BlogPost ─────────────────────────────────────────────────────────────
 export const BlogPost = () => {
   const { slug } = useParams();
-  const post = BLOG_POSTS.find(p => p.slug === slug);
+  const post = BLOG_POSTS.find((p) => p.slug === slug);
+  useEffect(() => { if (post) document.title = `${post.title} — Imagination AI Блог`; }, [post]);
 
-  useEffect(() => {
-    if (post) document.title = `${post.title} — Imagination AI Блог`;
-  }, [post]);
-
-  if (!post) return <SiteLayout ambient="blog"><div className="container py-32 text-center">Статья не найдена</div></SiteLayout>;
+  if (!post) {
+    return (
+      <SiteLayout ambient="blog">
+        <div className="container py-32 text-center">Статья не найдена</div>
+      </SiteLayout>
+    );
+  }
 
   return (
     <SiteLayout ambient="blog">
       <article className="py-20">
         <div className="container max-w-3xl">
-          <Link to="/blog" className="text-sm text-muted-foreground hover:text-foreground mb-8 inline-block">← Все статьи</Link>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4">
-            <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10">{post.category}</span>
+          <Link to="/blog" className="text-sm mb-8 inline-block transition-colors hover:text-accent" style={{ color: "hsl(var(--muted-foreground))" }}>
+            ← Все статьи
+          </Link>
+          <div className="flex items-center gap-3 text-[11px] mb-4" style={{ color: "rgba(250,250,250,0.42)" }}>
+            <span className="px-2 py-0.5 rounded-full" style={{ border: "1px solid hsl(var(--border))", color: "hsl(var(--accent))" }}>
+              {post.category}
+            </span>
+            <span>·</span>
+            <span>{post.read} мин</span>
+            <span>·</span>
             <span>{post.date}</span>
           </div>
-          <h1 className="font-display text-4xl md:text-6xl tracking-tight mb-8">{post.title}</h1>
-          <p className="text-xl text-muted-foreground mb-10 leading-relaxed">{post.excerpt}</p>
-          <div className="prose prose-invert max-w-none text-foreground/90 leading-relaxed">{post.content}</div>
+          <h1 className="font-display tracking-tight mb-8" style={{ fontSize: "clamp(36px, 5vw, 60px)", fontWeight: 400, lineHeight: 1.05 }}>
+            {post.title}
+          </h1>
+          <p className="text-xl mb-10 leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>
+            {post.excerpt}
+          </p>
+          <Placeholder seed={post.slug} aspect="16/9" className="rounded-[14px] mb-10" />
+          <div className="leading-relaxed" style={{ color: "rgba(250,250,250,0.9)" }}>{post.content}</div>
         </div>
       </article>
     </SiteLayout>
