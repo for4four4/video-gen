@@ -1,6 +1,3 @@
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  FILE: src/pages/Blog.tsx  — данные из БД                               ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
 import SiteLayout from "@/components/layout/SiteLayout";
 import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
@@ -26,6 +23,9 @@ const Placeholder = ({ seed, aspect = "1/1", className = "" }: { seed: string; a
     <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: "repeating-linear-gradient(135deg, rgba(255,255,255,0.5) 0 1px, transparent 1px 8px)" }} />
   </div>
 );
+
+/** Detect if string contains HTML tags */
+const isHTML = (str: string) => /<[a-z][\s\S]*>/i.test(str || '');
 
 // ─── BlogList ─────────────────────────────────────────────────────────────
 export const BlogList = () => {
@@ -121,7 +121,7 @@ export const BlogList = () => {
                     </div>
                     {p.cover_image
                       ? <img src={p.cover_image} alt={p.title} className="rounded" style={{ aspectRatio: "4/3", objectFit: "cover", opacity: hover === p.slug ? 1 : 0.6 }} />
-                      : <Placeholder seed={p.slug} aspect="4/3" className="rounded" style={{ opacity: hover === p.slug ? 1 : 0.6 } as any} />
+                      : <Placeholder seed={p.slug} aspect="4/3" className="rounded" />
                     }
                   </Link>
                 ))}
@@ -149,6 +149,8 @@ export const BlogPost = () => {
   if (isLoading) return <SiteLayout ambient="blog"><div className="container py-32 text-center text-muted-foreground">Загрузка...</div></SiteLayout>;
   if (isError || !post) return <SiteLayout ambient="blog"><div className="container py-32 text-center">Статья не найдена</div></SiteLayout>;
 
+  const contentIsHTML = isHTML(post.content);
+
   return (
     <SiteLayout ambient="blog">
       <article className="py-20">
@@ -169,7 +171,18 @@ export const BlogPost = () => {
             ? <img src={post.cover_image} alt={post.title} className="w-full rounded-[14px] mb-10 object-cover" style={{ aspectRatio: "16/9" }} />
             : <Placeholder seed={post.slug} aspect="16/9" className="rounded-[14px] mb-10" />
           }
-          <div className="leading-relaxed whitespace-pre-wrap" style={{ color: "rgba(250,250,250,0.9)" }}>{post.content}</div>
+          
+          {/* Content: render as HTML if contains tags, otherwise as plain text */}
+          {post.content && (
+            contentIsHTML ? (
+              <div 
+                className="article-content" 
+                dangerouslySetInnerHTML={{ __html: post.content }} 
+              />
+            ) : (
+              <div className="article-content whitespace-pre-wrap">{post.content}</div>
+            )
+          )}
         </div>
       </article>
     </SiteLayout>

@@ -34,12 +34,20 @@ function extractBasePriceRub(pricing: any): number {
     return minPrice;
   }
 
-  // prompt_per_million (текстовые модели, на нас не используются, но на всякий)
+  // prompt_per_million (текстовые модели)
   if (pricing.prompt_per_million) {
-    return parseFloat(pricing.prompt_per_million) / 1000000 * 1000; // цена за 1К токенов
+    return parseFloat(pricing.prompt_per_million) / 1000000 * 1000;
   }
 
   return 0;
+}
+
+/**
+ * Извлечь все тарифы (tiers) из pricing для хранения в БД
+ */
+function extractPricingJson(pricing: any): string {
+  if (!pricing) return '{}';
+  return JSON.stringify(pricing);
 }
 
 // ── Coefficients ──────────────────────────────────────────────────────────────
@@ -127,7 +135,7 @@ export const syncModelsFromPolza = async (): Promise<number> => {
       hasMore = meta.page < meta.totalPages;
       page++;
 
-      if (!meta.totalPages) break; // нет пагинации
+      if (!meta.totalPages) break;
     }
 
     let updatedCount = 0;
@@ -138,37 +146,47 @@ export const syncModelsFromPolza = async (): Promise<number> => {
       const pricing = model.top_provider?.pricing;
       const basePriceRub = extractBasePriceRub(pricing);
 
-      // Сохраняем параметры модели
-      const parameters = model.parameters || model.top_provider?.parameters || {};
+      // Сохраняем параметры модели — берём из top_provider.parameters или из model.parameters
+      const parameters = model.top_provider?.parameters || model.parameters || {};
       const inputModalities = model.architecture?.input_modalities || [];
       const outputModalities = model.architecture?.output_modalities || [];
       const shortDesc = model.short_description || null;
+      const pricingJson = extractPricingJson(pricing);
+
+      // Определяем поддерживаемые эндпоинты
+      const endpoints = model.endpoints || [];
 
       await pool.query(`
         INSERT INTO model_coefficients 
           (slug, name, vendor, type, base_price_usd, coefficient, enabled,
-           description, input_modalities, output_modalities, parameters_json)
-        VALUES ($1, $2, $3, $4, $5, 1.5, TRUE, $6, $7, $8, $9)
+           description, short_description, input_modalities, output_modalities, parameters_json)
+        VALUES ($1, $2, $3, $4, $5, 1.5, TRUE, $6, $7, $8, $9, $10)
         ON CONFLICT (slug) DO UPDATE SET
           name = EXCLUDED.name,
           vendor = EXCLUDED.vendor,
           type = EXCLUDED.type,
           base_price_usd = EXCLUDED.base_price_usd,
           description = EXCLUDED.description,
+          short_description = EXCLUDED.short_description,
           input_modalities = EXCLUDED.input_modalities,
           output_modalities = EXCLUDED.output_modalities,
           parameters_json = EXCLUDED.parameters_json,
           updated_at = CURRENT_TIMESTAMP
       `, [
-        model.id,
+        model.id,                          // slug — полный ID модели, например "black-forest-labs/flux.2-flex"
         model.name,
         extractVendor(model.id),
         model.type,
-        basePriceRub, // Храним в рублях как "base_price_usd" (переименуем логически)
-        shortDesc,
+        basePriceRub,
+        shortDesc,                         // description
+        shortDesc,                         // short_description  
         JSON.stringify(inputModalities),
         JSON.stringify(outputModalities),
-        JSON.stringify(parameters),
+        JSON.stringify({
+          ...parameters,
+          _pricing: pricing,               // Сохраняем pricing для расчёта стоимости с условиями
+          _endpoints: endpoints,           // Сохраняем доступные эндпоинты
+        }),
       ]);
 
       updatedCount++;
@@ -192,7 +210,6 @@ export const getModelsCatalog = async (params?: {
   limit?: number;
 }) => {
   try {
-    // Отдаём из нашей БД (туда уже засинхронизировано)
     const types = params?.type || ['image', 'video'];
     const page = params?.page || 1;
     const limit = params?.limit || 50;
@@ -216,7 +233,7 @@ export const getModelsCatalog = async (params?: {
 
     const result = await pool.query(
       `SELECT slug, name, vendor, type, base_price_usd, coefficient, description,
-              input_modalities, output_modalities, parameters_json, featured, short_description
+              short_description, input_modalities, output_modalities, parameters_json, featured
        FROM model_coefficients
        WHERE ${whereClause}
        ORDER BY featured DESC NULLS LAST, name ASC
@@ -231,9 +248,8 @@ export const getModelsCatalog = async (params?: {
         name: row.name,
         vendor: row.vendor,
         type: row.type,
-        base_price_rub: parseFloat(row.base_price_usd), // на самом деле рубли
+        base_price_rub: parseFloat(row.base_price_usd),
         coefficient: parseFloat(row.coefficient),
-        // Цена в поинтах = базовая цена в рублях * коэффициент
         price_points: Math.round(parseFloat(row.base_price_usd) * parseFloat(row.coefficient)),
         description: row.description || row.short_description,
         input_modalities: row.input_modalities || [],
@@ -254,63 +270,73 @@ export const getModelsCatalog = async (params?: {
   }
 };
 
-// ── Image generation via /v2/images/generations ───────────────────────────────
+// ── Image generation ─────────────────────────────────────────────────────────
+// Используем Media API (/v1/media) — универсальный эндпоинт для всех моделей
+// model ID передаётся полностью (как в каталоге), например "black-forest-labs/flux.2-flex"
 
 export const generateImage = async (options: {
   model: string;
   prompt: string;
-  size?: string;
+  aspect_ratio?: string;
+  image_resolution?: string;
   quality?: string;
+  output_format?: string;
+  seed?: number;
   n?: number;
   negativePrompt?: string;
 }): Promise<{ imageUrl: string; allImages: string[]; cost_rub?: number }> => {
   try {
-    console.log(`[Polza] Image generation: model=${options.model}, prompt="${options.prompt.slice(0, 50)}..."`);
+    console.log(`[Polza] Image generation via /v1/media: model=${options.model}, prompt="${options.prompt.slice(0, 50)}..."`);
 
-    const requestBody: any = {
-      model: options.model,
+    const input: any = {
       prompt: options.prompt,
-      n: options.n || 1,
-      response_format: 'url',
     };
 
-    if (options.size && options.size !== 'auto') {
-      // size может быть '1024x1024' или aspect_ratio '1:1' — пробуем оба
-      if (options.size.includes('x')) {
-        requestBody.size = options.size;
-      } else {
-        requestBody.size = 'auto';
-      }
+    if (options.aspect_ratio && options.aspect_ratio !== 'auto') {
+      input.aspect_ratio = options.aspect_ratio;
+    }
+    if (options.image_resolution) {
+      input.image_resolution = options.image_resolution;
+    }
+    if (options.quality && options.quality !== 'auto') {
+      input.quality = options.quality;
+    }
+    if (options.output_format) {
+      input.output_format = options.output_format;
+    }
+    if (options.seed && options.seed > 0) {
+      input.seed = options.seed;
+    }
+    if (options.n && options.n > 1) {
+      input.max_images = options.n;
     }
 
-    if (options.quality) requestBody.quality = options.quality;
-
     const response = await axios.post(
-      `${POLZA_API_BASE_URL}/v2/images/generations`,
-      requestBody,
+      `${POLZA_API_BASE_URL}/v1/media`,
+      { model: options.model, input },
       {
         headers: {
           'Content-Type': 'application/json',
           ...(POLZA_API_KEY ? { Authorization: `Bearer ${POLZA_API_KEY}` } : {}),
         },
-        timeout: 130000, // 130 сек (polza timeout 120s)
+        timeout: 130000,
       }
     );
 
     const data = response.data;
 
-    // Синхронный успешный ответ
-    if (data.data && Array.isArray(data.data) && data.data.length > 0) {
-      const urls = data.data.map((item: any) => item.url).filter(Boolean);
+    // Если сразу completed (маловероятно)
+    if (data.status === 'completed' && data.data) {
+      const urls = extractMediaUrls(data.data);
       return {
-        imageUrl: urls[0],
+        imageUrl: urls[0] || '',
         allImages: urls,
         cost_rub: data.usage?.cost_rub,
       };
     }
 
-    // Асинхронный режим (таймаут >120 сек) — получили pending
-    if (data.id && data.status === 'pending') {
+    // Pending/processing — поллинг
+    if (data.id) {
       console.log(`[Polza] Image generation pending, id=${data.id}, polling...`);
       return await pollMediaStatus(data.id);
     }
@@ -327,20 +353,24 @@ export const generateImage = async (options: {
 export const generateVideo = async (options: {
   model: string;
   prompt: string;
-  aspectRatio?: string;
+  aspect_ratio?: string;
   duration?: string | number;
   resolution?: string;
+  sound?: string;
+  mode?: string;
 }): Promise<{ videoUrl: string; cost_rub?: number }> => {
   try {
-    console.log(`[Polza] Video generation: model=${options.model}, prompt="${options.prompt.slice(0, 50)}..."`);
+    console.log(`[Polza] Video generation via /v1/media: model=${options.model}, prompt="${options.prompt.slice(0, 50)}..."`);
 
     const input: any = {
       prompt: options.prompt,
     };
 
-    if (options.aspectRatio) input.aspect_ratio = options.aspectRatio;
+    if (options.aspect_ratio) input.aspect_ratio = options.aspect_ratio;
     if (options.duration) input.duration = String(options.duration);
     if (options.resolution) input.resolution = options.resolution;
+    if (options.sound) input.sound = options.sound === 'true';
+    if (options.mode) input.mode = options.mode;
 
     const response = await axios.post(
       `${POLZA_API_BASE_URL}/v1/media`,
@@ -357,15 +387,15 @@ export const generateVideo = async (options: {
     const data = response.data;
 
     // Если сразу completed (маловероятно для видео)
-    if (data.status === 'completed') {
-      const videoUrl = data.data?.url || data.data?.video_url || '';
-      return { videoUrl, cost_rub: data.usage?.cost_rub };
+    if (data.status === 'completed' && data.data) {
+      const urls = extractMediaUrls(data.data);
+      return { videoUrl: urls[0] || '', cost_rub: data.usage?.cost_rub };
     }
 
     // Pending/processing — поллинг
     if (data.id) {
       console.log(`[Polza] Video pending, id=${data.id}, polling...`);
-      const result = await pollMediaStatus(data.id, 120, 5000); // до 10 минут
+      const result = await pollMediaStatus(data.id, 120, 5000);
       return { videoUrl: result.imageUrl, cost_rub: result.cost_rub };
     }
 
@@ -375,6 +405,28 @@ export const generateVideo = async (options: {
     throw error;
   }
 };
+
+// ── Extract media URLs from completed response ──────────────────────────────
+
+function extractMediaUrls(data: any): string[] {
+  if (!data) return [];
+  
+  // Images array
+  if (data.images && Array.isArray(data.images)) {
+    return data.images.map((img: any) => typeof img === 'string' ? img : img.url || img).filter(Boolean);
+  }
+  
+  // Single URL (video or single image)
+  if (data.url) return [data.url];
+  if (data.video_url) return [data.video_url];
+  
+  // OpenAI-style data array
+  if (Array.isArray(data)) {
+    return data.map((item: any) => item.url).filter(Boolean);
+  }
+
+  return [];
+}
 
 // ── Polling helper ────────────────────────────────────────────────────────────
 
@@ -398,14 +450,9 @@ async function pollMediaStatus(
     console.log(`[Polza] Poll ${attempt + 1}/${maxAttempts}: status=${status.status}`);
 
     if (status.status === 'completed') {
-      // Изображения
-      if (status.data?.images && Array.isArray(status.data.images)) {
-        const urls = status.data.images.map((img: any) => img.url || img).filter(Boolean);
+      const urls = extractMediaUrls(status.data);
+      if (urls.length > 0) {
         return { imageUrl: urls[0], allImages: urls, cost_rub: status.usage?.cost_rub };
-      }
-      // Видео
-      if (status.data?.url) {
-        return { imageUrl: status.data.url, allImages: [status.data.url], cost_rub: status.usage?.cost_rub };
       }
       // Fallback
       const url = status.data?.url || status.result_url || '';
@@ -459,7 +506,6 @@ export const saveChatHistory = async (data: {
   status?: string;
   sessionId?: string;
 }): Promise<string> => {
-  // Если sessionId передан — сохраняем в chat_messages
   if (data.sessionId) {
     const msgResult = await pool.query(
       `INSERT INTO chat_messages (session_id, user_id, role, content, result_url, model_slug, points_spent)
@@ -467,7 +513,6 @@ export const saveChatHistory = async (data: {
        RETURNING id`,
       [data.sessionId, data.userId, data.response, data.imageUrl || null, data.modelSlug, data.pointsSpent]
     );
-    // Обновляем сессию
     await pool.query(
       `UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
       [data.sessionId]
@@ -479,7 +524,6 @@ export const saveChatHistory = async (data: {
     return msgResult.rows[0].id;
   }
 
-  // Иначе — старый путь через generations
   const result = await pool.query(
     `INSERT INTO generations (user_id, model_slug, points_spent, status, prompt, result_url)
      VALUES ($1, $2, $3, $4, $5, $6)

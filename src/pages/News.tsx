@@ -32,6 +32,9 @@ const tagColor = (t: string) => ({
 
 const tagLabel = (t: string) => ({ release: "NEW", update: "UPDATE", platform: "PLATFORM" }[t] || t.toUpperCase());
 
+/** Detect if string contains HTML tags */
+const isHTML = (str: string) => /<[a-z][\s\S]*>/i.test(str || '');
+
 export const NewsList = () => {
   useEffect(() => { document.title = "Новости — Imagination AI"; }, []);
 
@@ -151,6 +154,7 @@ export const NewsItem = () => {
   if (isError || !n) return <SiteLayout ambient="news"><div className="container py-32 text-center">Новость не найдена</div></SiteLayout>;
 
   const tc = tagColor(n.tag);
+  const contentIsHTML = isHTML(n.content);
 
   return (
     <SiteLayout ambient="news">
@@ -168,7 +172,18 @@ export const NewsItem = () => {
             : <Placeholder seed={n.slug} aspect="16/9" label={n.model_name} className="rounded-[14px] mb-8" />
           }
           <p className="text-xl leading-relaxed mb-6" style={{ color: "hsl(var(--muted-foreground))" }}>{n.excerpt}</p>
-          {n.content && <div className="leading-relaxed whitespace-pre-wrap" style={{ color: "rgba(250,250,250,0.9)" }}>{n.content}</div>}
+          
+          {/* Content: render as HTML if contains tags, otherwise as plain text */}
+          {n.content && (
+            contentIsHTML ? (
+              <div 
+                className="article-content" 
+                dangerouslySetInnerHTML={{ __html: n.content }} 
+              />
+            ) : (
+              <div className="article-content whitespace-pre-wrap">{n.content}</div>
+            )
+          )}
         </div>
       </article>
     </SiteLayout>

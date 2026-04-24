@@ -16,6 +16,55 @@ import {
 
 const router = Router();
 
+// ── Helper: рассчитать стоимость с учётом tier-условий ────────────────────
+function calculateCostFromPricing(pricing: any, params: Record<string, any>): number | null {
+  if (!pricing) return null;
+
+  // per_request — фиксированная цена
+  if (pricing.per_request) {
+    return parseFloat(pricing.per_request);
+  }
+
+  // tiers — ищем подходящий по условиям
+  if (pricing.tiers && Array.isArray(pricing.tiers) && pricing.tiers.length > 0) {
+    // Сортируем от самого специфичного (больше условий) к базовому
+    const sorted = [...pricing.tiers].sort((a: any, b: any) => 
+      (b.conditions?.length || 0) - (a.conditions?.length || 0)
+    );
+
+    for (const tier of sorted) {
+      if (!tier.conditions || tier.conditions.length === 0) continue;
+      
+      // Проверяем все условия tier
+      const allMatch = tier.conditions.every((cond: string) => {
+        const [key, value] = cond.split('=');
+        return params[key] === value;
+      });
+
+      if (allMatch && tier.cost_rub) {
+        let cost = parseFloat(tier.cost_rub);
+        // Если есть unitParam (например duration), умножаем на значение
+        if (pricing.unitParam && params[pricing.unitParam]) {
+          cost *= parseFloat(params[pricing.unitParam]);
+        }
+        return cost;
+      }
+    }
+
+    // Если ни один tier с условиями не подошёл — базовый (без условий)
+    const baseTier = sorted.find((t: any) => !t.conditions || t.conditions.length === 0);
+    if (baseTier && baseTier.cost_rub) {
+      let cost = parseFloat(baseTier.cost_rub);
+      if (pricing.unitParam && params[pricing.unitParam]) {
+        cost *= parseFloat(params[pricing.unitParam]);
+      }
+      return cost;
+    }
+  }
+
+  return null;
+}
+
 // ── GET /api/chat/models ──────────────────────────────────────────────────────
 // Возвращает модели из нашей БД (уже засинхронизировано с polza.ai)
 router.get('/models', async (req: Request, res: Response) => {
@@ -59,7 +108,7 @@ router.get('/models', async (req: Request, res: Response) => {
 // ── POST /api/chat/image ──────────────────────────────────────────────────────
 router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { model, modelSlug, prompt, size, quality, n, aspect_ratio } = req.body;
+    const { model, modelSlug, prompt, aspect_ratio, image_resolution, quality, output_format, seed, n } = req.body;
     const actualModel = model || modelSlug;
 
     if (!actualModel || !prompt) {
@@ -68,18 +117,35 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
 
     const userId = req.user!.id;
 
-    // Получаем базовую цену и коэффициент из БД
+    // Получаем данные модели из БД
     const modelRow = await pool.query(
-      `SELECT base_price_usd, coefficient FROM model_coefficients WHERE slug = $1`,
+      `SELECT base_price_usd, coefficient, parameters_json FROM model_coefficients WHERE slug = $1`,
       [actualModel]
     );
 
-    let pointsCost = 10; // дефолт если модели нет в БД
+    let pointsCost = 10;
     if (modelRow.rows.length > 0) {
       const basePriceRub = parseFloat(modelRow.rows[0].base_price_usd);
       const coeff = parseFloat(modelRow.rows[0].coefficient);
-      pointsCost = Math.round(basePriceRub * coeff);
+      
+      // Попробуем рассчитать точную стоимость по тарифам
+      let parametersJson: any = {};
+      try { parametersJson = JSON.parse(modelRow.rows[0].parameters_json || '{}'); } catch {}
+      
+      const pricing = parametersJson._pricing;
+      const tierCost = calculateCostFromPricing(pricing, { 
+        image_resolution, quality, aspect_ratio 
+      });
+      
+      if (tierCost) {
+        pointsCost = Math.round(tierCost * coeff);
+      } else {
+        pointsCost = Math.round(basePriceRub * coeff);
+      }
     }
+
+    // Минимум 1 поинт
+    pointsCost = Math.max(1, pointsCost);
 
     // Проверяем баланс
     const balance = await getUserBalance(userId);
@@ -91,23 +157,26 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
       });
     }
 
-    // Генерируем изображение
+    // Генерируем изображение через Media API
     const polzaResult = await generateImage({
       model: actualModel,
       prompt,
-      size: size || 'auto',
-      quality: quality || 'auto',
+      aspect_ratio,
+      image_resolution,
+      quality,
+      output_format,
+      seed: seed ? parseInt(seed) : undefined,
       n: n || 1,
     });
 
-    // Списываем поинты (используем реальную стоимость если polza вернул)
+    // Используем реальную стоимость от polza если есть
     const actualCost = polzaResult.cost_rub
       ? Math.round(polzaResult.cost_rub * (await getModelCoefficient(actualModel)))
       : pointsCost;
 
     await deductUserBalance(userId, Math.min(actualCost, balance));
 
-    // Сохраняем в generations для истории
+    // Сохраняем в generations
     await pool.query(
       `INSERT INTO generations (user_id, model_slug, points_spent, status, prompt, result_url)
        VALUES ($1, $2, $3, 'completed', $4, $5)`,
@@ -126,7 +195,7 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
   } catch (error: any) {
     console.error('Image generation error:', error.response?.data || error.message);
     res.status(error.response?.status || 500).json({
-      error: error.response?.data?.error || error.message || 'Generation failed'
+      error: error.response?.data?.error?.message || error.response?.data?.error || error.message || 'Generation failed'
     });
   }
 });
@@ -134,7 +203,7 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
 // ── POST /api/chat/video ──────────────────────────────────────────────────────
 router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { modelSlug, model, prompt, aspectRatio, duration, resolution } = req.body;
+    const { modelSlug, model, prompt, aspect_ratio, aspectRatio, duration, resolution, sound, mode } = req.body;
     const actualModel = model || modelSlug;
 
     if (!actualModel || !prompt) {
@@ -144,7 +213,7 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
     const userId = req.user!.id;
 
     const modelRow = await pool.query(
-      `SELECT base_price_usd, coefficient FROM model_coefficients WHERE slug = $1`,
+      `SELECT base_price_usd, coefficient, parameters_json FROM model_coefficients WHERE slug = $1`,
       [actualModel]
     );
 
@@ -152,8 +221,26 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
     if (modelRow.rows.length > 0) {
       const basePriceRub = parseFloat(modelRow.rows[0].base_price_usd);
       const coeff = parseFloat(modelRow.rows[0].coefficient);
-      pointsCost = Math.round(basePriceRub * coeff);
+      
+      let parametersJson: any = {};
+      try { parametersJson = JSON.parse(modelRow.rows[0].parameters_json || '{}'); } catch {}
+      
+      const pricing = parametersJson._pricing;
+      const tierCost = calculateCostFromPricing(pricing, {
+        duration: duration || '5',
+        resolution: resolution || '720p',
+        sound: sound || 'false',
+        mode: mode || 'std',
+      });
+      
+      if (tierCost) {
+        pointsCost = Math.round(tierCost * coeff);
+      } else {
+        pointsCost = Math.round(basePriceRub * coeff);
+      }
     }
+
+    pointsCost = Math.max(1, pointsCost);
 
     const balance = await getUserBalance(userId);
     if (balance < pointsCost) {
@@ -164,12 +251,16 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
       });
     }
 
+    const actualAspectRatio = aspect_ratio || aspectRatio;
+
     const polzaResult = await generateVideo({
       model: actualModel,
       prompt,
-      aspectRatio,
+      aspect_ratio: actualAspectRatio,
       duration,
       resolution,
+      sound,
+      mode,
     });
 
     const actualCost = polzaResult.cost_rub
@@ -195,7 +286,7 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
   } catch (error: any) {
     console.error('Video generation error:', error.response?.data || error.message);
     res.status(error.response?.status || 500).json({
-      error: error.response?.data?.error || error.message || 'Generation failed'
+      error: error.response?.data?.error?.message || error.response?.data?.error || error.message || 'Generation failed'
     });
   }
 });
@@ -240,13 +331,11 @@ router.post('/send', authMiddleware, async (req: AuthRequest, res: Response) => 
     const assistantContent = polzaResponse.choices?.[0]?.message?.content || '';
 
     if (sessionId) {
-      // Сохраняем user message
       await pool.query(
         `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent)
          VALUES ($1,$2,'user',$3,$4,0)`,
         [sessionId, userId, lastUserMessage?.content || '', actualModel]
       );
-      // Сохраняем assistant message
       await pool.query(
         `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent)
          VALUES ($1,$2,'assistant',$3,$4,$5)`,
