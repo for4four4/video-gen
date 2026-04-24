@@ -8,7 +8,6 @@
  *  5. Сетка с медленным сдвигом
  *  6. Лёгкое затемнение по краям
  */
-import heroVideo from "@/assets/hero-bg.mp4.asset.json";
 
 const PARTICLES = Array.from({ length: 28 }, (_, i) => ({
   left: `${(i * 3.6 + 2) % 100}%`,
@@ -29,7 +28,7 @@ const HeroBackground = () => {
         preload="auto"
         className="absolute inset-0 w-full h-full object-cover opacity-50"
       >
-        <source src={heroVideo.url} type="video/mp4" />
+        <source src="/video/hero-bg.mp4" type="video/mp4" />
       </video>
 
       {/* 2. Aurora */}

@@ -1,83 +1,11 @@
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  FILE: src/pages/Blog.tsx  — данные из БД                               ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 import SiteLayout from "@/components/layout/SiteLayout";
 import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-
-// ─── Data ─────────────────────────────────────────────────────────────────
-export type Post = {
-  slug: string;
-  title: string;
-  excerpt: string;
-  content: string;
-  date: string;
-  category: string;
-  read: number;
-  author: string;
-  featured?: boolean;
-};
-
-export const BLOG_POSTS: Post[] = [
-  {
-    slug: "midjourney-vs-flux",
-    title: "Midjourney vs Flux: что выбрать в 2025",
-    excerpt: "Сравниваем две топовые модели по качеству, скорости и цене. 20 генераций одного промпта, разбор артефактов и вердикт.",
-    content: "Midjourney v7 остаётся эталоном художественности, но Flux Pro выигрывает в скорости и детализации мелких объектов...",
-    date: "2025-04-01",
-    category: "Сравнения",
-    read: 8,
-    author: "Лена Орлова",
-    featured: true,
-  },
-  {
-    slug: "video-ai-guide",
-    title: "Гид по видео-нейросетям: Sora, Veo, Kling",
-    excerpt: "Полный обзор актуальных моделей для генерации видео — где лучше движение, где звук, где сюжет.",
-    content: "Sora от OpenAI задаёт стандарт кинематографичности, Veo 3 добавляет звук...",
-    date: "2025-03-25",
-    category: "Гайды",
-    read: 12,
-    author: "Дима Лавров",
-  },
-  {
-    slug: "prompt-engineering",
-    title: "Промпт-инжиниринг для изображений",
-    excerpt: "Как структурировать описание сцены, чтобы получать именно то, что задумано.",
-    content: "Хороший промпт — это 80% успеха. Структурируйте описание: субъект, действие, окружение...",
-    date: "2025-03-18",
-    category: "Туториалы",
-    read: 6,
-    author: "Аня Верт",
-  },
-  {
-    slug: "commercial-use",
-    title: "Можно ли использовать AI-арт коммерчески",
-    excerpt: "Разбираемся с правами на генерации — что можно, что нельзя, какие модели накладывают ограничения.",
-    content: "В Imagination все права на сгенерированные материалы передаются пользователю...",
-    date: "2025-03-10",
-    category: "Право",
-    read: 5,
-    author: "Юр. отдел",
-  },
-  {
-    slug: "lighting-recipes",
-    title: "10 рецептов освещения в промптах",
-    excerpt: "Готовые формулы, которые превращают плоскую картинку в постер.",
-    content: "Освещение — одна из самых мощных составляющих промпта...",
-    date: "2025-03-02",
-    category: "Туториалы",
-    read: 9,
-    author: "Лена Орлова",
-  },
-  {
-    slug: "aspect-ratios",
-    title: "Какое соотношение сторон выбрать",
-    excerpt: "21:9 для кино, 4:5 для Instagram, 9:16 для Reels. Когда и почему.",
-    content: "Соотношение сторон — первое, что стоит настроить перед генерацией...",
-    date: "2025-02-24",
-    category: "Гайды",
-    read: 4,
-    author: "Дима Лавров",
-  },
-];
+import { useQuery } from "@tanstack/react-query";
+import { getBlogList, getBlogPost, type BlogPost as BlogPostType } from "@/lib/api";
 
 // ─── Gradient placeholder ─────────────────────────────────────────────────
 const GRADIENTS = [
@@ -93,160 +21,113 @@ const gradFor = (seed: string) => {
   for (let i = 0; i < seed.length; i++) h = ((h * 31 + seed.charCodeAt(i)) >>> 0);
   return GRADIENTS[h % GRADIENTS.length];
 };
-const Placeholder = ({ seed, aspect = "1/1", className = "" }: {
-  seed: string; aspect?: string; className?: string;
-}) => (
+const Placeholder = ({ seed, aspect = "1/1", className = "" }: { seed: string; aspect?: string; className?: string }) => (
   <div className={`relative overflow-hidden ${className}`} style={{ aspectRatio: aspect, background: gradFor(seed) }}>
     <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: "repeating-linear-gradient(135deg, rgba(255,255,255,0.5) 0 1px, transparent 1px 8px)" }} />
   </div>
 );
 
-// ─── BlogList — V2: editorial asymmetric list ─────────────────────────────
+// ─── BlogList ─────────────────────────────────────────────────────────────
 export const BlogList = () => {
   useEffect(() => { document.title = "Блог — Imagination AI"; }, []);
-
   const [hover, setHover] = useState<string | null>(null);
-  const featured = BLOG_POSTS[0];
-  const rest = BLOG_POSTS.slice(1);
+
+  const { data: posts = [], isLoading } = useQuery({
+    queryKey: ['blog'],
+    queryFn: getBlogList,
+  });
+
+  const featured = posts[0];
+  const rest = posts.slice(1);
 
   return (
     <SiteLayout ambient="blog">
       <section className="relative py-20">
         <div className="max-w-[1200px] mx-auto px-10">
 
-          {/* ── Masthead ── */}
           <div className="pb-8 mb-10" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
             <div className="flex items-end justify-between">
               <div>
-                <div
-                  className="text-[10px] tracking-[0.4em] uppercase mb-3"
-                  style={{ color: "rgba(250,250,250,0.42)" }}
-                >
-                  Vol. 04 · 2025 · Журнал Imagination
+                <div className="text-[10px] tracking-[0.4em] uppercase mb-3" style={{ color: "rgba(250,250,250,0.42)" }}>
+                  Imagination · Журнал
                 </div>
-                <h1
-                  className="font-display tracking-tight leading-[0.9]"
-                  style={{ fontSize: "clamp(72px, 9vw, 120px)", fontWeight: 400 }}
-                >
-                  The<br />
-                  <em className="text-accent not-italic">Journal</em>
+                <h1 className="font-display tracking-tight leading-[0.9]" style={{ fontSize: "clamp(72px, 9vw, 120px)", fontWeight: 400 }}>
+                  The<br /><em className="text-accent not-italic">Journal</em>
                 </h1>
               </div>
               <div className="text-right text-[13px]" style={{ color: "hsl(var(--muted-foreground))" }}>
-                <div className="mb-1">{BLOG_POSTS.length} материалов</div>
-                <div>обновлено {BLOG_POSTS[0].date}</div>
+                <div>{posts.length} материалов</div>
               </div>
             </div>
           </div>
 
-          {/* ── Featured — horizontal band ── */}
-          <Link to={`/blog/${featured.slug}`} className="block group mb-16">
-            <div className="flex items-start gap-8">
-              <div className="flex-1">
-                <div
-                  className="text-[10px] tracking-[0.3em] uppercase mb-4"
-                  style={{ color: "hsl(var(--accent))" }}
-                >
-                  → Сегодня читают
-                </div>
-                <h2
-                  className="font-display tracking-tight leading-[0.98] mb-6 transition-colors group-hover:text-accent"
-                  style={{ fontSize: "clamp(40px, 5vw, 64px)", fontWeight: 400 }}
-                >
-                  {featured.title}
-                </h2>
-                <p className="text-[17px] leading-relaxed max-w-xl mb-6" style={{ color: "hsl(var(--muted-foreground))" }}>
-                  {featured.excerpt}
-                </p>
-                <div className="flex items-center gap-4 text-[12px]" style={{ color: "rgba(250,250,250,0.42)" }}>
-                  <span>{featured.author}</span>
-                  <span>·</span>
-                  <span>{featured.category}</span>
-                  <span>·</span>
-                  <span>{featured.read} мин</span>
-                  <span>·</span>
-                  <span>{featured.date}</span>
-                </div>
-              </div>
-              <Placeholder
-                seed={featured.slug + "v2"}
-                aspect="3/4"
-                className="w-[300px] shrink-0"
-                // intentionally tight border-radius per spec (журнальное фото)
-              />
-            </div>
-          </Link>
+          {isLoading && (
+            <div className="text-center py-20 text-muted-foreground">Загрузка...</div>
+          )}
 
-          {/* ── Divider ── */}
-          <div className="flex items-center gap-4 mb-8">
-            <span className="text-[11px] tracking-[0.3em] uppercase" style={{ color: "rgba(250,250,250,0.42)" }}>
-              Все материалы
-            </span>
-            <div className="flex-1 h-px" style={{ background: "hsl(var(--border))" }} />
-            <span className="text-[11px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>
-              {String(rest.length).padStart(2, "0")} / {String(BLOG_POSTS.length).padStart(2, "0")}
-            </span>
-          </div>
+          {!isLoading && posts.length === 0 && (
+            <div className="text-center py-20 text-muted-foreground">Статьи пока не опубликованы</div>
+          )}
 
-          {/* ── Row list ── */}
-          <div style={{ borderBottom: "1px solid hsl(var(--border))" }}>
-            {rest.map((p, i) => (
-              <Link
-                key={p.slug}
-                to={`/blog/${p.slug}`}
-                className="grid gap-6 py-7 items-center cursor-pointer transition-colors"
-                style={{
-                  gridTemplateColumns: "1fr 7fr 2fr 2fr",
-                  borderTop: "1px solid hsl(var(--border))",
-                }}
-                onMouseEnter={() => setHover(p.slug)}
-                onMouseLeave={() => setHover(null)}
-              >
-                {/* Number */}
-                <span className="text-[11px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>
-                  {String(i + 2).padStart(2, "0")}
-                </span>
-
-                {/* Title + excerpt */}
-                <div>
-                  <h3
-                    className="font-display tracking-tight transition-all"
-                    style={{
-                      fontSize: 32,
-                      fontWeight: 400,
-                      lineHeight: 1.1,
-                      color: hover === p.slug ? "hsl(var(--accent))" : "hsl(var(--foreground))",
-                      fontStyle: hover === p.slug ? "italic" : "normal",
-                    }}
-                  >
-                    {p.title}
-                  </h3>
-                  <p className="mt-2 text-[13px] max-w-lg" style={{ color: "hsl(var(--muted-foreground))" }}>
-                    {p.excerpt}
-                  </p>
-                </div>
-
-                {/* Category + meta */}
-                <div className="text-[11px]" style={{ color: "rgba(250,250,250,0.42)" }}>
-                  <div className="uppercase tracking-widest mb-1" style={{ color: "hsl(var(--muted-foreground))" }}>
-                    {p.category}
+          {featured && (
+            <Link to={`/blog/${featured.slug}`} className="block group mb-16">
+              <div className="flex items-start gap-8">
+                <div className="flex-1">
+                  <div className="text-[10px] tracking-[0.3em] uppercase mb-4" style={{ color: "hsl(var(--accent))" }}>→ Сегодня читают</div>
+                  <h2 className="font-display tracking-tight leading-[0.98] mb-6 transition-colors group-hover:text-accent" style={{ fontSize: "clamp(40px, 5vw, 64px)", fontWeight: 400 }}>
+                    {featured.title}
+                  </h2>
+                  <p className="text-[17px] leading-relaxed max-w-xl mb-6" style={{ color: "hsl(var(--muted-foreground))" }}>{featured.excerpt}</p>
+                  <div className="flex items-center gap-4 text-[12px]" style={{ color: "rgba(250,250,250,0.42)" }}>
+                    <span>{featured.author}</span>
+                    {featured.category && <><span>·</span><span>{featured.category}</span></>}
+                    <span>·</span><span>{featured.read_minutes} мин</span>
+                    <span>·</span><span>{featured.published_at?.slice(0, 10) || featured.created_at?.slice(0, 10)}</span>
                   </div>
-                  <div>{p.read} мин · {p.author}</div>
                 </div>
+                {featured.cover_image
+                  ? <img src={featured.cover_image} alt={featured.title} className="w-[300px] shrink-0 object-cover" style={{ aspectRatio: "3/4" }} />
+                  : <Placeholder seed={featured.slug} aspect="3/4" className="w-[300px] shrink-0" />
+                }
+              </div>
+            </Link>
+          )}
 
-                {/* Thumbnail */}
-                <Placeholder
-                  seed={p.slug + "v2"}
-                  aspect="4/3"
-                  className="rounded transition-all"
-                  style={{
-                    opacity: hover === p.slug ? 1 : 0.6,
-                    transform: hover === p.slug ? "scale(1.03)" : "scale(1)",
-                  } as React.CSSProperties}
-                />
-              </Link>
-            ))}
-          </div>
+          {rest.length > 0 && (
+            <>
+              <div className="flex items-center gap-4 mb-8">
+                <span className="text-[11px] tracking-[0.3em] uppercase" style={{ color: "rgba(250,250,250,0.42)" }}>Все материалы</span>
+                <div className="flex-1 h-px" style={{ background: "hsl(var(--border))" }} />
+              </div>
+
+              <div style={{ borderBottom: "1px solid hsl(var(--border))" }}>
+                {rest.map((p, i) => (
+                  <Link key={p.slug} to={`/blog/${p.slug}`}
+                    className="grid gap-6 py-7 items-center cursor-pointer transition-colors"
+                    style={{ gridTemplateColumns: "1fr 7fr 2fr 2fr", borderTop: "1px solid hsl(var(--border))" }}
+                    onMouseEnter={() => setHover(p.slug)}
+                    onMouseLeave={() => setHover(null)}
+                  >
+                    <span className="text-[11px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>{String(i + 2).padStart(2, "0")}</span>
+                    <div>
+                      <h3 className="font-display tracking-tight transition-all" style={{ fontSize: 32, fontWeight: 400, lineHeight: 1.1, color: hover === p.slug ? "hsl(var(--accent))" : "hsl(var(--foreground))", fontStyle: hover === p.slug ? "italic" : "normal" }}>
+                        {p.title}
+                      </h3>
+                      <p className="mt-2 text-[13px] max-w-lg" style={{ color: "hsl(var(--muted-foreground))" }}>{p.excerpt}</p>
+                    </div>
+                    <div className="text-[11px]" style={{ color: "rgba(250,250,250,0.42)" }}>
+                      <div className="uppercase tracking-widest mb-1" style={{ color: "hsl(var(--muted-foreground))" }}>{p.category}</div>
+                      <div>{p.read_minutes} мин · {p.author}</div>
+                    </div>
+                    {p.cover_image
+                      ? <img src={p.cover_image} alt={p.title} className="rounded" style={{ aspectRatio: "4/3", objectFit: "cover", opacity: hover === p.slug ? 1 : 0.6 }} />
+                      : <Placeholder seed={p.slug} aspect="4/3" className="rounded" style={{ opacity: hover === p.slug ? 1 : 0.6 } as any} />
+                    }
+                  </Link>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </section>
     </SiteLayout>
@@ -255,17 +136,18 @@ export const BlogList = () => {
 
 // ─── BlogPost ─────────────────────────────────────────────────────────────
 export const BlogPost = () => {
-  const { slug } = useParams();
-  const post = BLOG_POSTS.find((p) => p.slug === slug);
+  const { slug } = useParams<{ slug: string }>();
+
+  const { data: post, isLoading, isError } = useQuery({
+    queryKey: ['blog', slug],
+    queryFn: () => getBlogPost(slug!),
+    enabled: !!slug,
+  });
+
   useEffect(() => { if (post) document.title = `${post.title} — Imagination AI Блог`; }, [post]);
 
-  if (!post) {
-    return (
-      <SiteLayout ambient="blog">
-        <div className="container py-32 text-center">Статья не найдена</div>
-      </SiteLayout>
-    );
-  }
+  if (isLoading) return <SiteLayout ambient="blog"><div className="container py-32 text-center text-muted-foreground">Загрузка...</div></SiteLayout>;
+  if (isError || !post) return <SiteLayout ambient="blog"><div className="container py-32 text-center">Статья не найдена</div></SiteLayout>;
 
   return (
     <SiteLayout ambient="blog">
@@ -275,22 +157,19 @@ export const BlogPost = () => {
             ← Все статьи
           </Link>
           <div className="flex items-center gap-3 text-[11px] mb-4" style={{ color: "rgba(250,250,250,0.42)" }}>
-            <span className="px-2 py-0.5 rounded-full" style={{ border: "1px solid hsl(var(--border))", color: "hsl(var(--accent))" }}>
-              {post.category}
-            </span>
-            <span>·</span>
-            <span>{post.read} мин</span>
-            <span>·</span>
-            <span>{post.date}</span>
+            {post.category && <span className="px-2 py-0.5 rounded-full" style={{ border: "1px solid hsl(var(--border))", color: "hsl(var(--accent))" }}>{post.category}</span>}
+            <span>·</span><span>{post.read_minutes} мин</span>
+            <span>·</span><span>{post.published_at?.slice(0, 10) || post.created_at?.slice(0, 10)}</span>
           </div>
           <h1 className="font-display tracking-tight mb-8" style={{ fontSize: "clamp(36px, 5vw, 60px)", fontWeight: 400, lineHeight: 1.05 }}>
             {post.title}
           </h1>
-          <p className="text-xl mb-10 leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>
-            {post.excerpt}
-          </p>
-          <Placeholder seed={post.slug} aspect="16/9" className="rounded-[14px] mb-10" />
-          <div className="leading-relaxed" style={{ color: "rgba(250,250,250,0.9)" }}>{post.content}</div>
+          <p className="text-xl mb-10 leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>{post.excerpt}</p>
+          {post.cover_image
+            ? <img src={post.cover_image} alt={post.title} className="w-full rounded-[14px] mb-10 object-cover" style={{ aspectRatio: "16/9" }} />
+            : <Placeholder seed={post.slug} aspect="16/9" className="rounded-[14px] mb-10" />
+          }
+          <div className="leading-relaxed whitespace-pre-wrap" style={{ color: "rgba(250,250,250,0.9)" }}>{post.content}</div>
         </div>
       </article>
     </SiteLayout>

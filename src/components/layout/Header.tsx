@@ -1,6 +1,7 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { authService, User } from "@/services/auth";
+import logoSvg from "@/assets/logo.svg";
 
 const links = [
   { to: "/models", label: "Модели" },
@@ -54,16 +55,9 @@ const Header = () => {
 
           {/* ── Logo ── */}
           <Link to="/" className="flex items-center gap-2">
-            {/* conic-gradient orb */}
-            <div
-              className="w-5 h-5 rounded-full shrink-0"
-              style={{
-                background: "conic-gradient(from 120deg, #b478fd, #ff6ba9, #6adfff, #b478fd)",
-                filter: "blur(0.3px)",
-              }}
-            />
+            <img src={logoSvg} alt="Imagination-ai" className="w-9 h-9 shrink-0" />
             <span
-              className="font-display text-[17px] tracking-tight"
+              className="font-display text-[40px] tracking-tight"
               style={{ color: "hsl(var(--foreground))" }}
             >
               Imagination

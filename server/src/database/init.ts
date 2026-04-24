@@ -2,9 +2,9 @@ import pool from '../db';
 
 export const createTables = async () => {
   const client = await pool.connect();
-  
+
   try {
-    // Users table
+    // Users
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -23,27 +23,50 @@ export const createTables = async () => {
       )
     `);
 
-    // Model coefficients table
+    // Model coefficients + дополнительные поля
     await client.query(`
       CREATE TABLE IF NOT EXISTS model_coefficients (
         slug VARCHAR(100) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         vendor VARCHAR(255) NOT NULL,
         type VARCHAR(20) NOT NULL,
-        base_price_usd DECIMAL(10, 4) NOT NULL,
+        base_price_usd DECIMAL(10, 4) NOT NULL DEFAULT 0,
         coefficient DECIMAL(5, 2) DEFAULT 1.5,
         enabled BOOLEAN DEFAULT TRUE,
+        description TEXT,
+        short_description TEXT,
+        input_modalities TEXT,
+        output_modalities TEXT,
+        parameters_json TEXT,
+        featured BOOLEAN DEFAULT FALSE,
+        speed VARCHAR(20) DEFAULT 'medium',
+        popularity INTEGER DEFAULT 50,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    // Generations log table
+    // Добавляем новые колонки если они ещё не существуют (для существующих таблиц)
+    const newColumns = [
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS description TEXT`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS short_description TEXT`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS input_modalities TEXT`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS output_modalities TEXT`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS parameters_json TEXT`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS featured BOOLEAN DEFAULT FALSE`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS speed VARCHAR(20) DEFAULT 'medium'`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS popularity INTEGER DEFAULT 50`,
+    ];
+    for (const sql of newColumns) {
+      await client.query(sql).catch(() => {}); // игнорируем ошибки если уже есть
+    }
+
+    // Generations
     await client.query(`
       CREATE TABLE IF NOT EXISTS generations (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID REFERENCES users(id),
-        model_slug VARCHAR(100) REFERENCES model_coefficients(slug),
+        model_slug VARCHAR(100),
         points_spent INTEGER NOT NULL,
         status VARCHAR(20) DEFAULT 'running',
         prompt TEXT,
@@ -52,7 +75,7 @@ export const createTables = async () => {
       )
     `);
 
-    // Payments table
+    // Payments
     await client.query(`
       CREATE TABLE IF NOT EXISTS payments (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -66,7 +89,7 @@ export const createTables = async () => {
       )
     `);
 
-    // Settings table
+    // Settings
     await client.query(`
       CREATE TABLE IF NOT EXISTS settings (
         key VARCHAR(100) PRIMARY KEY,
@@ -75,7 +98,7 @@ export const createTables = async () => {
       )
     `);
 
-    // Visits tracking table
+    // Visits
     await client.query(`
       CREATE TABLE IF NOT EXISTS visits (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -86,7 +109,111 @@ export const createTables = async () => {
       )
     `);
 
-    console.log('✅ All tables created successfully');
+    // Model examples
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS model_examples (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        model_slug VARCHAR(100),
+        image_url TEXT NOT NULL,
+        prompt TEXT,
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // News
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS news (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        slug VARCHAR(255) UNIQUE NOT NULL,
+        title VARCHAR(500) NOT NULL,
+        excerpt TEXT,
+        content TEXT,
+        tag VARCHAR(50) DEFAULT 'update',
+        model_name VARCHAR(100),
+        cover_image TEXT,
+        seo_title VARCHAR(500),
+        seo_description TEXT,
+        published BOOLEAN DEFAULT FALSE,
+        published_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Blog posts
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS blog_posts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        slug VARCHAR(255) UNIQUE NOT NULL,
+        title VARCHAR(500) NOT NULL,
+        excerpt TEXT,
+        content TEXT,
+        category VARCHAR(100),
+        author VARCHAR(255),
+        read_minutes INTEGER DEFAULT 5,
+        cover_image TEXT,
+        featured BOOLEAN DEFAULT FALSE,
+        seo_title VARCHAR(500),
+        seo_description TEXT,
+        published BOOLEAN DEFAULT FALSE,
+        published_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Pricing plans
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_plans (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        points INTEGER NOT NULL,
+        price_rub INTEGER NOT NULL,
+        bonus_points INTEGER DEFAULT 0,
+        popular BOOLEAN DEFAULT FALSE,
+        enabled BOOLEAN DEFAULT TRUE,
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Chat sessions
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(500) DEFAULT 'Новый чат',
+        model_slug VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Chat messages
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        role VARCHAR(20) NOT NULL,
+        content TEXT,
+        result_url TEXT,
+        model_slug VARCHAR(100),
+        points_spent INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Индексы
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_generations_user ON generations(user_id)`).catch(() => {});
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id)`).catch(() => {});
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id)`).catch(() => {});
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_news_slug ON news(slug)`).catch(() => {});
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_blog_slug ON blog_posts(slug)`).catch(() => {});
+
+    console.log('✅ All tables created/verified');
   } catch (error) {
     console.error('❌ Error creating tables:', error);
     throw error;
@@ -97,64 +224,54 @@ export const createTables = async () => {
 
 export const seedDefaultData = async () => {
   const client = await pool.connect();
-  
+
   try {
-    // Insert default admin user
     const bcrypt = require('bcryptjs');
     const adminEmail = process.env.ADMIN_EMAIL || 'admin@imagination.ai';
     const adminPassword = process.env.ADMIN_PASSWORD || 'Admin123!';
     const passwordHash = await bcrypt.hash(adminPassword, 10);
-    
+
     await client.query(`
       INSERT INTO users (email, password_hash, name, is_admin, points_balance, status)
       VALUES ($1, $2, 'Admin', TRUE, 10000, 'active')
       ON CONFLICT (email) DO NOTHING
     `, [adminEmail, passwordHash]);
 
-    // Insert default model coefficients
-    const models = [
-      { slug: 'midjourney-v7', name: 'Midjourney v7', vendor: 'Midjourney', type: 'image', basePriceUsd: 0.08 },
-      { slug: 'flux-pro', name: 'Flux Pro', vendor: 'Black Forest Labs', type: 'image', basePriceUsd: 0.05 },
-      { slug: 'dalle-3', name: 'DALL·E 3', vendor: 'OpenAI', type: 'image', basePriceUsd: 0.04 },
-      { slug: 'stable-diffusion-3', name: 'Stable Diffusion 3', vendor: 'Stability AI', type: 'image', basePriceUsd: 0.02 },
-      { slug: 'sora', name: 'Sora', vendor: 'OpenAI', type: 'video', basePriceUsd: 0.50 },
-      { slug: 'kling-1-6', name: 'Kling 1.6', vendor: 'Kuaishou', type: 'video', basePriceUsd: 0.35 },
-      { slug: 'runway-gen3', name: 'Runway Gen-3', vendor: 'Runway', type: 'video', basePriceUsd: 0.40 },
-      { slug: 'luma-dream', name: 'Luma Dream', vendor: 'Luma Labs', type: 'video', basePriceUsd: 0.30 },
-    ];
-
-    for (const model of models) {
-      await client.query(`
-        INSERT INTO model_coefficients (slug, name, vendor, type, base_price_usd, coefficient, enabled)
-        VALUES ($1, $2, $3, $4, $5, 1.5, TRUE)
-        ON CONFLICT (slug) DO UPDATE SET 
-          name = EXCLUDED.name,
-          vendor = EXCLUDED.vendor,
-          type = EXCLUDED.type,
-          base_price_usd = EXCLUDED.base_price_usd
-      `, [model.slug, model.name, model.vendor, model.type, model.basePriceUsd]);
-    }
-
-    // Insert default settings
+    // Дефолтные настройки
     const settings = [
-      { key: 'pointToRubRate', value: '1' },
-      { key: 'signupBonusPoints', value: '50' },
-      { key: 'minTopUpPoints', value: '100' },
-      { key: 'polzaApiBaseUrl', value: process.env.POLZA_API_BASE_URL || 'https://polza.ai/api' },
-      { key: 'defaultCoefficient', value: '1.5' },
+      ['pointToRubRate', '1'],
+      ['signupBonusPoints', '50'],
+      ['minTopUpPoints', '100'],
+      ['polzaApiBaseUrl', process.env.POLZA_API_BASE_URL || 'https://polza.ai/api'],
+      ['defaultCoefficient', '1.5'],
+      ['usdToRubRate', '90'],
     ];
 
-    for (const setting of settings) {
+    for (const [key, value] of settings) {
       await client.query(`
         INSERT INTO settings (key, value)
         VALUES ($1, $2)
-        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-      `, [setting.key, setting.value]);
+        ON CONFLICT (key) DO NOTHING
+      `, [key, value]);
     }
 
-    console.log('✅ Default data seeded successfully');
-    console.log(`📧 Admin user created: ${adminEmail}`);
-    console.log(`🔑 Admin password: ${process.env.ADMIN_PASSWORD || 'Admin123!'}`);
+    // Дефолтные тарифные планы
+    const plans = [
+      ['Старт',      100,   100,    0, false, 1],
+      ['Базовый',    500,   500,   25, false, 2],
+      ['Популярный', 1000, 1000,  100,  true, 3],
+      ['Про',        5000, 5000,  750, false, 4],
+    ];
+
+    for (const [name, points, price, bonus, popular, order] of plans) {
+      await client.query(`
+        INSERT INTO pricing_plans (name, points, price_rub, bonus_points, popular, sort_order)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT DO NOTHING
+      `, [name, points, price, bonus, popular, order]).catch(() => {});
+    }
+
+    console.log('✅ Default data seeded');
   } catch (error) {
     console.error('❌ Error seeding data:', error);
     throw error;

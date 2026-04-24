@@ -6,6 +6,7 @@ import { createTables, seedDefaultData } from './database/init';
 import authRoutes from './routes/auth';
 import adminRoutes from './routes/admin';
 import chatRoutes from './routes/chat';
+import contentRoutes from './routes/content';
 
 dotenv.config();
 
@@ -17,7 +18,7 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Request logging
@@ -26,7 +27,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Track visits
+// Track visits (только не-API)
 app.use(async (req, res, next) => {
   try {
     if (!req.path.startsWith('/api/')) {
@@ -35,9 +36,7 @@ app.use(async (req, res, next) => {
         [req.ip, req.get('user-agent'), req.path]
       );
     }
-  } catch (error) {
-    // Ignore visit tracking errors
-  }
+  } catch (_) { /* ignore */ }
   next();
 });
 
@@ -45,67 +44,50 @@ app.use(async (req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api', contentRoutes); // news, blog, pricing, models, chat/sessions
 
-// Health check endpoint
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API documentation endpoint
-app.get('/api', (req, res) => {
-  res.json({
-    name: 'Imagination AI API',
-    version: '1.0.0',
-    endpoints: {
-      auth: {
-        'POST /api/auth/register': 'Register new user',
-        'POST /api/auth/login': 'Login user',
-        'POST /api/auth/forgot-password': 'Request password reset',
-        'POST /api/auth/reset-password': 'Reset password with token',
-        'GET /api/auth/me': 'Get current user (requires auth)',
-      },
-      admin: {
-        'GET /api/admin/overview': 'Get overview metrics',
-        'GET /api/admin/users': 'Get all users',
-        'PATCH /api/admin/users/:id': 'Update user',
-        'GET /api/admin/payments': 'Get all payments',
-        'GET /api/admin/models': 'Get model coefficients',
-        'PATCH /api/admin/models/:slug': 'Update model coefficient',
-        'POST /api/admin/models/sync': 'Sync models from polza.ai',
-        'GET /api/admin/generations': 'Get generation logs',
-        'GET /api/admin/settings': 'Get settings',
-        'PUT /api/admin/settings': 'Update settings',
-      },
-    },
-  });
-});
-
-// Error handling middleware
+// Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
-  });
+  console.error('Unhandled error:', err);
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-// Start server
+// ── Start server ──────────────────────────────────────────────────────────────
 const startServer = async () => {
   try {
-    // Test database connection
     await pool.query('SELECT NOW()');
     console.log('✅ Database connected');
 
-    // Create tables
     await createTables();
-
-    // Seed default data
     await seedDefaultData();
 
-    // Start server
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
-      console.log(`📚 API docs available at http://localhost:${PORT}/api`);
     });
+
+    // Auto-sync models from polza.ai every 4 hours
+    const { syncModelsFromPolza } = await import('./services/polza');
+
+    const runSync = async () => {
+      try {
+        const count = await syncModelsFromPolza();
+        console.log(`🔄 Auto-sync: ${count} models updated`);
+      } catch (err: any) {
+        console.error('❌ Auto-sync error:', err.message);
+      }
+    };
+
+    // Первый запуск через 5 сек после старта
+    setTimeout(runSync, 5000);
+
+    // Потом каждые 4 часа
+    setInterval(runSync, 4 * 60 * 60 * 1000);
+
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
