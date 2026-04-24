@@ -38,3 +38,8 @@ __pycache__/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Build info files
+*.tsbuildinfo
+*.mp4.*
+*.asset.json
