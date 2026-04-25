@@ -168,7 +168,7 @@ export const BlogPost = () => {
           </h1>
           <p className="text-xl mb-10 leading-relaxed" style={{ color: "hsl(var(--muted-foreground))" }}>{post.excerpt}</p>
           {post.cover_image
-            ? <img src={post.cover_image} alt={post.title} className="w-full rounded-[14px] mb-10 object-cover" style={{ aspectRatio: "16/9" }} />
+            ? <img src={post.cover_image} alt={post.title} className="w-full rounded-[14px] mb-10 object-cover"/>
             : <Placeholder seed={post.slug} aspect="16/9" className="rounded-[14px] mb-10" />
           }
           

@@ -168,7 +168,7 @@ export const NewsItem = () => {
           </div>
           <h1 className="font-display tracking-tight mb-6" style={{ fontSize: "clamp(36px, 5vw, 60px)", fontWeight: 400, lineHeight: 1.05 }}>{n.title}</h1>
           {n.cover_image
-            ? <img src={n.cover_image} alt={n.title} className="w-full rounded-[14px] mb-8 object-cover" style={{ aspectRatio: "16/9" }} />
+            ? <img src={n.cover_image} alt={n.title} className="w-full rounded-[14px] mb-8 object-cover" />
             : <Placeholder seed={n.slug} aspect="16/9" label={n.model_name} className="rounded-[14px] mb-8" />
           }
           <p className="text-xl leading-relaxed mb-6" style={{ color: "hsl(var(--muted-foreground))" }}>{n.excerpt}</p>

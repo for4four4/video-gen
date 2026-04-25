@@ -50,6 +50,41 @@ function extractPricingJson(pricing: any): string {
   return JSON.stringify(pricing);
 }
 
+// ── Resolve model slug ────────────────────────────────────────────────────────
+// Фронтенд может отправить как полный slug "black-forest-labs/flux-pro",
+// так и короткий "flux-pro". Эта функция находит правильный slug в БД.
+
+export const resolveModelSlug = async (inputSlug: string): Promise<string | null> => {
+  // 1. Точное совпадение
+  const exact = await pool.query(
+    'SELECT slug FROM model_coefficients WHERE slug = $1 AND enabled = TRUE',
+    [inputSlug]
+  );
+  if (exact.rows.length > 0) return exact.rows[0].slug;
+
+  // 2. Частичное совпадение — inputSlug может быть частью slug после "/"
+  //    например inputSlug="flux-pro" -> slug="black-forest-labs/flux-pro"
+  const partial = await pool.query(
+    `SELECT slug FROM model_coefficients 
+     WHERE slug LIKE '%/' || $1 AND enabled = TRUE
+     LIMIT 1`,
+    [inputSlug]
+  );
+  if (partial.rows.length > 0) return partial.rows[0].slug;
+
+  // 3. ILIKE поиск по имени (fallback)
+  const byName = await pool.query(
+    `SELECT slug FROM model_coefficients 
+     WHERE slug ILIKE '%' || $1 || '%' AND enabled = TRUE
+     ORDER BY LENGTH(slug) ASC
+     LIMIT 1`,
+    [inputSlug]
+  );
+  if (byName.rows.length > 0) return byName.rows[0].slug;
+
+  return null;
+};
+
 // ── Coefficients ──────────────────────────────────────────────────────────────
 
 export const getModelCoefficient = async (modelSlug: string): Promise<number> => {
@@ -122,6 +157,8 @@ export const syncModelsFromPolza = async (): Promise<number> => {
     // Качаем все страницы
     while (hasMore) {
       const url = `${POLZA_API_BASE_URL}/v1/models/catalog?type=image&type=video&limit=50&page=${page}`;
+      console.log(`[Polza Sync] Fetching page ${page}: ${url}`);
+      
       const response = await axios.get(url, {
         headers: POLZA_API_KEY ? { Authorization: `Bearer ${POLZA_API_KEY}` } : {},
         timeout: 30000,
@@ -132,29 +169,54 @@ export const syncModelsFromPolza = async (): Promise<number> => {
       allModels = allModels.concat(models);
 
       const meta = data.meta || {};
+      console.log(`[Polza Sync] Page ${page}: got ${models.length} models, totalPages=${meta.totalPages || '?'}`);
+      
       hasMore = meta.page < meta.totalPages;
       page++;
 
       if (!meta.totalPages) break;
     }
 
+    console.log(`[Polza Sync] Total fetched: ${allModels.length} models`);
+
+    // ── Предварительная очистка: убираем невалидные значения в существующих записях ──
+    await pool.query(`
+      UPDATE model_coefficients 
+      SET input_modalities = NULL 
+      WHERE input_modalities IN ('[]', '""', '')
+    `).catch(() => {});
+    await pool.query(`
+      UPDATE model_coefficients 
+      SET output_modalities = NULL 
+      WHERE output_modalities IN ('[]', '""', '')
+    `).catch(() => {});
+
+    // Собираем все slug'и из polza.ai
+    const polzaSlugs = new Set<string>();
     let updatedCount = 0;
 
     for (const model of allModels) {
       if (model.type !== 'image' && model.type !== 'video') continue;
 
+      const slug = model.id; // полный ID, например "black-forest-labs/flux-pro"
+      polzaSlugs.add(slug);
+
       const pricing = model.top_provider?.pricing;
       const basePriceRub = extractBasePriceRub(pricing);
 
-      // Сохраняем параметры модели — берём из top_provider.parameters или из model.parameters
+      // Сохраняем параметры модели
       const parameters = model.top_provider?.parameters || model.parameters || {};
       const inputModalities = model.architecture?.input_modalities || [];
       const outputModalities = model.architecture?.output_modalities || [];
       const shortDesc = model.short_description || null;
-      const pricingJson = extractPricingJson(pricing);
-
-      // Определяем поддерживаемые эндпоинты
       const endpoints = model.endpoints || [];
+
+      // Модальности сохраняем как простой текст (через запятую), не как JSON массив
+      const inputModalRaw = Array.isArray(inputModalities) ? inputModalities.join(', ') : String(inputModalities || '');
+      const outputModalRaw = Array.isArray(outputModalities) ? outputModalities.join(', ') : String(outputModalities || '');
+      // Пустые строки → null чтобы не было проблем с PostgreSQL
+      const inputModalStr = inputModalRaw.trim() || null;
+      const outputModalStr = outputModalRaw.trim() || null;
 
       await pool.query(`
         INSERT INTO model_coefficients 
@@ -171,25 +233,44 @@ export const syncModelsFromPolza = async (): Promise<number> => {
           input_modalities = EXCLUDED.input_modalities,
           output_modalities = EXCLUDED.output_modalities,
           parameters_json = EXCLUDED.parameters_json,
+          enabled = TRUE,
           updated_at = CURRENT_TIMESTAMP
       `, [
-        model.id,                          // slug — полный ID модели, например "black-forest-labs/flux.2-flex"
+        slug,
         model.name,
-        extractVendor(model.id),
+        extractVendor(slug),
         model.type,
         basePriceRub,
-        shortDesc,                         // description
-        shortDesc,                         // short_description  
-        JSON.stringify(inputModalities),
-        JSON.stringify(outputModalities),
+        shortDesc,                           // description
+        shortDesc,                           // short_description
+        inputModalStr,                       // input_modalities — plain text
+        outputModalStr,                      // output_modalities — plain text
         JSON.stringify({
           ...parameters,
-          _pricing: pricing,               // Сохраняем pricing для расчёта стоимости с условиями
-          _endpoints: endpoints,           // Сохраняем доступные эндпоинты
+          _pricing: pricing,
+          _endpoints: endpoints,
         }),
       ]);
 
       updatedCount++;
+    }
+
+    // ── Отключаем модели, которых больше нет в polza.ai ──
+    // Не удаляем, а ставим enabled=false, чтобы сохранить историю
+    if (polzaSlugs.size > 0) {
+      const slugArray = Array.from(polzaSlugs);
+      // Строим WHERE slug NOT IN ($1, $2, $3, ...) динамически
+      const placeholders = slugArray.map((_, i) => `$${i + 1}`).join(', ');
+      const result = await pool.query(
+        `UPDATE model_coefficients 
+         SET enabled = FALSE, updated_at = CURRENT_TIMESTAMP 
+         WHERE slug NOT IN (${placeholders}) AND enabled = TRUE`,
+        slugArray
+      );
+      const disabledCount = result.rowCount || 0;
+      if (disabledCount > 0) {
+        console.log(`[Polza Sync] Disabled ${disabledCount} old models not found in polza.ai`);
+      }
     }
 
     clearCoefficientsCache();
@@ -271,8 +352,6 @@ export const getModelsCatalog = async (params?: {
 };
 
 // ── Image generation ─────────────────────────────────────────────────────────
-// Используем Media API (/v1/media) — универсальный эндпоинт для всех моделей
-// model ID передаётся полностью (как в каталоге), например "black-forest-labs/flux.2-flex"
 
 export const generateImage = async (options: {
   model: string;
@@ -325,7 +404,7 @@ export const generateImage = async (options: {
 
     const data = response.data;
 
-    // Если сразу completed (маловероятно)
+    // Если сразу completed
     if (data.status === 'completed' && data.data) {
       const urls = extractMediaUrls(data.data);
       return {
@@ -386,13 +465,11 @@ export const generateVideo = async (options: {
 
     const data = response.data;
 
-    // Если сразу completed (маловероятно для видео)
     if (data.status === 'completed' && data.data) {
       const urls = extractMediaUrls(data.data);
       return { videoUrl: urls[0] || '', cost_rub: data.usage?.cost_rub };
     }
 
-    // Pending/processing — поллинг
     if (data.id) {
       console.log(`[Polza] Video pending, id=${data.id}, polling...`);
       const result = await pollMediaStatus(data.id, 120, 5000);
@@ -411,16 +488,13 @@ export const generateVideo = async (options: {
 function extractMediaUrls(data: any): string[] {
   if (!data) return [];
   
-  // Images array
   if (data.images && Array.isArray(data.images)) {
     return data.images.map((img: any) => typeof img === 'string' ? img : img.url || img).filter(Boolean);
   }
   
-  // Single URL (video or single image)
   if (data.url) return [data.url];
   if (data.video_url) return [data.video_url];
   
-  // OpenAI-style data array
   if (Array.isArray(data)) {
     return data.map((item: any) => item.url).filter(Boolean);
   }
@@ -454,7 +528,6 @@ async function pollMediaStatus(
       if (urls.length > 0) {
         return { imageUrl: urls[0], allImages: urls, cost_rub: status.usage?.cost_rub };
       }
-      // Fallback
       const url = status.data?.url || status.result_url || '';
       return { imageUrl: url, allImages: url ? [url] : [], cost_rub: status.usage?.cost_rub };
     }

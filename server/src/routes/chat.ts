@@ -12,6 +12,7 @@ import {
   generateVideo,
   saveChatHistory,
   clearCoefficientsCache,
+  resolveModelSlug,
 } from '../services/polza';
 
 const router = Router();
@@ -27,7 +28,6 @@ function calculateCostFromPricing(pricing: any, params: Record<string, any>): nu
 
   // tiers — ищем подходящий по условиям
   if (pricing.tiers && Array.isArray(pricing.tiers) && pricing.tiers.length > 0) {
-    // Сортируем от самого специфичного (больше условий) к базовому
     const sorted = [...pricing.tiers].sort((a: any, b: any) => 
       (b.conditions?.length || 0) - (a.conditions?.length || 0)
     );
@@ -35,7 +35,6 @@ function calculateCostFromPricing(pricing: any, params: Record<string, any>): nu
     for (const tier of sorted) {
       if (!tier.conditions || tier.conditions.length === 0) continue;
       
-      // Проверяем все условия tier
       const allMatch = tier.conditions.every((cond: string) => {
         const [key, value] = cond.split('=');
         return params[key] === value;
@@ -43,7 +42,6 @@ function calculateCostFromPricing(pricing: any, params: Record<string, any>): nu
 
       if (allMatch && tier.cost_rub) {
         let cost = parseFloat(tier.cost_rub);
-        // Если есть unitParam (например duration), умножаем на значение
         if (pricing.unitParam && params[pricing.unitParam]) {
           cost *= parseFloat(params[pricing.unitParam]);
         }
@@ -51,7 +49,7 @@ function calculateCostFromPricing(pricing: any, params: Record<string, any>): nu
       }
     }
 
-    // Если ни один tier с условиями не подошёл — базовый (без условий)
+    // Базовый tier (без условий)
     const baseTier = sorted.find((t: any) => !t.conditions || t.conditions.length === 0);
     if (baseTier && baseTier.cost_rub) {
       let cost = parseFloat(baseTier.cost_rub);
@@ -65,8 +63,26 @@ function calculateCostFromPricing(pricing: any, params: Record<string, any>): nu
   return null;
 }
 
+// ── Helper: resolve model or return error ─────────────────────────────────
+async function resolveModel(inputSlug: string, res: Response): Promise<string | null> {
+  const resolved = await resolveModelSlug(inputSlug);
+  if (!resolved) {
+    // Попробуем показать доступные модели для помощи
+    const available = await pool.query(
+      `SELECT slug, name FROM model_coefficients WHERE enabled = TRUE ORDER BY name LIMIT 10`
+    );
+    const suggestions = available.rows.map((r: any) => r.slug).join(', ');
+    
+    res.status(404).json({
+      error: `Модель "${inputSlug}" не найдена. Убедитесь что модели синхронизированы (Admin → Sync polza.ai).`,
+      availableModels: suggestions || 'Нет доступных моделей — выполните синхронизацию',
+    });
+    return null;
+  }
+  return resolved;
+}
+
 // ── GET /api/chat/models ──────────────────────────────────────────────────────
-// Возвращает модели из нашей БД (уже засинхронизировано с polza.ai)
 router.get('/models', async (req: Request, res: Response) => {
   try {
     const type = req.query.type as string;
@@ -109,11 +125,15 @@ router.get('/models', async (req: Request, res: Response) => {
 router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { model, modelSlug, prompt, aspect_ratio, image_resolution, quality, output_format, seed, n } = req.body;
-    const actualModel = model || modelSlug;
+    const inputModel = model || modelSlug;
 
-    if (!actualModel || !prompt) {
+    if (!inputModel || !prompt) {
       return res.status(400).json({ error: 'model and prompt are required' });
     }
+
+    // Резолвим slug (поддержка и короткого и полного формата)
+    const actualModel = await resolveModel(inputModel, res);
+    if (!actualModel) return; // ответ уже отправлен
 
     const userId = req.user!.id;
 
@@ -128,7 +148,6 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
       const basePriceRub = parseFloat(modelRow.rows[0].base_price_usd);
       const coeff = parseFloat(modelRow.rows[0].coefficient);
       
-      // Попробуем рассчитать точную стоимость по тарифам
       let parametersJson: any = {};
       try { parametersJson = JSON.parse(modelRow.rows[0].parameters_json || '{}'); } catch {}
       
@@ -144,7 +163,6 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
       }
     }
 
-    // Минимум 1 поинт
     pointsCost = Math.max(1, pointsCost);
 
     // Проверяем баланс
@@ -157,7 +175,7 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
       });
     }
 
-    // Генерируем изображение через Media API
+    // Генерируем изображение — передаём ПОЛНЫЙ slug в polza.ai
     const polzaResult = await generateImage({
       model: actualModel,
       prompt,
@@ -204,11 +222,15 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
 router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { modelSlug, model, prompt, aspect_ratio, aspectRatio, duration, resolution, sound, mode } = req.body;
-    const actualModel = model || modelSlug;
+    const inputModel = model || modelSlug;
 
-    if (!actualModel || !prompt) {
+    if (!inputModel || !prompt) {
       return res.status(400).json({ error: 'model and prompt are required' });
     }
+
+    // Резолвим slug
+    const actualModel = await resolveModel(inputModel, res);
+    if (!actualModel) return;
 
     const userId = req.user!.id;
 
@@ -295,11 +317,15 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
 router.post('/send', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { modelSlug, model, messages, temperature, max_tokens, sessionId } = req.body;
-    const actualModel = model || modelSlug;
+    const inputModel = model || modelSlug;
 
-    if (!actualModel || !messages || !Array.isArray(messages)) {
+    if (!inputModel || !messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'model and messages are required' });
     }
+
+    // Резолвим slug
+    const actualModel = await resolveModel(inputModel, res);
+    if (!actualModel) return;
 
     const userId = req.user!.id;
 
