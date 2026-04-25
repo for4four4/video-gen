@@ -41,6 +41,8 @@ export const createTables = async () => {
         featured BOOLEAN DEFAULT FALSE,
         speed VARCHAR(20) DEFAULT 'medium',
         popularity INTEGER DEFAULT 50,
+        icon_url TEXT,
+        cover_image TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -56,6 +58,8 @@ export const createTables = async () => {
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS featured BOOLEAN DEFAULT FALSE`,
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS speed VARCHAR(20) DEFAULT 'medium'`,
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS popularity INTEGER DEFAULT 50`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS icon_url TEXT`,
+      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS cover_image TEXT`,
     ];
     for (const sql of newColumns) {
       await client.query(sql).catch(() => {}); // игнорируем ошибки если уже есть

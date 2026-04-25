@@ -26,6 +26,7 @@ export interface PaymentRow {
 export interface ModelCoefficient {
   slug: string; name: string; vendor: string; type: "image" | "video";
   basePriceUsd: number; coefficient: number; pointsPrice: number; enabled: boolean;
+  iconUrl?: string; coverImage?: string;
 }
 
 export interface GenerationLog {
@@ -85,5 +86,27 @@ export const fetchSettings = (): Promise<AdminSettings> => adminFetch('/settings
 export const updateSettings = (patch: Partial<AdminSettings>) =>
   adminFetch('/settings', 'PUT', patch);
 
-export const updateModel = (slug: string, patch: Partial<Pick<ModelCoefficient, 'coefficient' | 'enabled'>>) =>
+export const updateModel = (slug: string, patch: { coefficient?: number; enabled?: boolean; icon_url?: string; cover_image?: string }) =>
   adminFetch(`/models/${slug}`, 'PATCH', patch);
+
+// File upload helper — uses FormData
+export const uploadFile = async (file: File): Promise<string> => {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`/api/admin/upload`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return data.url;
+};

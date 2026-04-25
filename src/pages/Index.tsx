@@ -1,19 +1,8 @@
 import SiteLayout from "@/components/layout/SiteLayout";
 import { Link } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import heroVideo from "@/assets/hero-bg.mp4.asset.json";
-
-// ─── Model data for marquee ────────────────────────────────────────────────
-const MARQUEE_MODELS = [
-  { name: "Midjourney v7", price: 12, slug: "midjourney-v7" },
-  { name: "Flux Pro", price: 8, slug: "flux-pro" },
-  { name: "DALL·E 3", price: 10, slug: "dalle-3" },
-  { name: "Stable Diffusion XL", price: 5, slug: "stable-diffusion-xl" },
-  { name: "Sora", price: 80, slug: "sora" },
-  { name: "Veo 3", price: 90, slug: "veo-3" },
-  { name: "Kling 2", price: 60, slug: "kling-2" },
-  { name: "Runway Gen-3", price: 70, slug: "runway-gen3" },
-];
+import { getModels, type ModelFromDB } from "@/lib/api";
 
 // ─── Gradient placeholders ─────────────────────────────────────────────────
 const GRADIENTS = [
@@ -58,6 +47,8 @@ const Placeholder = ({ seed, aspect = "1/1", label, className = "" }: {
 
 // ─── Index ─────────────────────────────────────────────────────────────────
 const Index = () => {
+  const [marqueeModels, setMarqueeModels] = useState<ModelFromDB[]>([]);
+
   useEffect(() => {
     document.title = "Imagination AI — Чат с ИИ для генерации видео и изображений";
     const ld = document.createElement("script");
@@ -71,6 +62,9 @@ const Index = () => {
     });
     document.head.appendChild(ld);
     return () => { document.head.removeChild(ld); };
+
+    // Fetch models from DB for marquee
+    getModels().then(m => setMarqueeModels(m.slice(0, 12))).catch(() => {});
   }, []);
 
   return (
@@ -193,15 +187,19 @@ const Index = () => {
             className="flex gap-8 whitespace-nowrap"
             style={{ animation: "marquee 40s linear infinite" }}
           >
-            {[...MARQUEE_MODELS, ...MARQUEE_MODELS].map((m, i) => (
+            {[...marqueeModels, ...marqueeModels].map((m, i) => (
               <div key={i} className="inline-flex items-center gap-2.5 shrink-0">
-                <Placeholder seed={m.slug + "mq"} aspect="1/1" className="w-8 h-8 rounded-md" />
+                {m.icon_url ? (
+                  <img src={m.icon_url} alt="" className="w-8 h-8 rounded-md object-cover" />
+                ) : (
+                  <Placeholder seed={m.slug + "mq"} aspect="1/1" className="w-8 h-8 rounded-md" />
+                )}
                 <span className="font-display text-[20px]">{m.name}</span>
                 <span
                   className="font-mono text-[10px] px-1.5 py-0.5 rounded"
                   style={{ color: "hsl(var(--accent))", background: "rgba(180,120,253,0.08)" }}
                 >
-                  {m.price} пт
+                  {m.price_points} пт
                 </span>
                 <span className="text-[16px]" style={{ color: "rgba(250,250,250,0.42)" }}>·</span>
               </div>
@@ -283,7 +281,7 @@ const Index = () => {
               key={s}
               seed={s}
               aspect={i % 3 === 0 ? "3/4" : i % 3 === 1 ? "1/1" : "4/3"}
-              label={MARQUEE_MODELS[i % MARQUEE_MODELS.length].name.toLowerCase()}
+              label={marqueeModels.length > 0 ? marqueeModels[i % marqueeModels.length].name.toLowerCase() : 'ai'}
               className="rounded-[12px]"
             />
           ))}

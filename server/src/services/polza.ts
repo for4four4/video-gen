@@ -181,14 +181,14 @@ export const syncModelsFromPolza = async (): Promise<number> => {
 
     // ── Предварительная очистка: убираем невалидные значения в существующих записях ──
     await pool.query(`
-      UPDATE model_coefficients 
-      SET input_modalities = NULL 
-      WHERE input_modalities IN ('[]', '""', '')
+      UPDATE model_coefficients
+      SET input_modalities = NULL
+      WHERE input_modalities IN ('[]', '""', '', '{}', '[[]]')
     `).catch(() => {});
     await pool.query(`
-      UPDATE model_coefficients 
-      SET output_modalities = NULL 
-      WHERE output_modalities IN ('[]', '""', '')
+      UPDATE model_coefficients
+      SET output_modalities = NULL
+      WHERE output_modalities IN ('[]', '""', '', '{}', '[[]]')
     `).catch(() => {});
 
     // Собираем все slug'и из polza.ai
@@ -314,7 +314,8 @@ export const getModelsCatalog = async (params?: {
 
     const result = await pool.query(
       `SELECT slug, name, vendor, type, base_price_usd, coefficient, description,
-              short_description, input_modalities, output_modalities, parameters_json, featured
+              short_description, input_modalities, output_modalities, parameters_json, featured,
+              icon_url, cover_image, speed, popularity
        FROM model_coefficients
        WHERE ${whereClause}
        ORDER BY featured DESC NULLS LAST, name ASC
@@ -337,6 +338,10 @@ export const getModelsCatalog = async (params?: {
         output_modalities: row.output_modalities || [],
         parameters: row.parameters_json || {},
         featured: row.featured || false,
+        icon_url: row.icon_url || null,
+        cover_image: row.cover_image || null,
+        speed: row.speed || 'medium',
+        popularity: row.popularity || 50,
       })),
       meta: {
         page,

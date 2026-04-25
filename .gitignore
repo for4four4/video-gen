@@ -43,3 +43,7 @@ Thumbs.db
 *.tsbuildinfo
 *.mp4.*
 *.asset.json
+
+# Uploaded files
+public/uploads/*
+!public/uploads/.gitkeep

@@ -9,14 +9,14 @@ import {
   Users, CreditCard, Eye, Image as ImageIcon, TrendingUp,
   RefreshCw, Settings as SettingsIcon, Activity, Sparkles,
   Newspaper, BookOpen, Tag, Plus, Trash2, Edit2, Check, X,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Upload,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   fetchOverview, fetchUsers, fetchPayments, fetchModelCoefficients,
   fetchGenerations, fetchSettings, updateModel, updateUser,
-  updateSettings, syncModelsFromPolza,
+  updateSettings, syncModelsFromPolza, uploadFile,
   type OverviewMetrics, type UserRow, type PaymentRow,
   type ModelCoefficient, type GenerationLog, type AdminSettings, type Range,
 } from "@/lib/adminApi";
@@ -107,6 +107,12 @@ const Admin = () => {
   const [blogModal, setBlogModal] = useState<Partial<BlogPost> | null>(null);
   const [pricingModal, setPricingModal] = useState<Partial<PricingPlan> | null>(null);
 
+  // File upload temp state — preview URL shown until saved
+  const [newsCoverFile, setNewsCoverFile] = useState<{ url: string; file: File } | null>(null);
+  const [blogCoverFile, setBlogCoverFile] = useState<{ url: string; file: File } | null>(null);
+  const [newsCoverUploading, setNewsCoverUploading] = useState(false);
+  const [blogCoverUploading, setBlogCoverUploading] = useState(false);
+
   // Model examples
   const [examplesSlug, setExamplesSlug] = useState<string | null>(null);
   const [examples, setExamples] = useState<any[]>([]);
@@ -116,6 +122,31 @@ const Admin = () => {
   // User balance edit
   const [editBalanceId, setEditBalanceId] = useState<string | null>(null);
   const [editBalanceVal, setEditBalanceVal] = useState('');
+
+  // Icon upload for models
+  const [uploadingSlug, setUploadingSlug] = useState<string | null>(null);
+
+  const handleIconUpload = async (slug: string, file: File) => {
+    try {
+      setUploadingSlug(slug);
+      const url = await uploadFile(file);
+      await updateModel(slug, { icon_url: url });
+      setModels(curr => curr.map(m => m.slug === slug ? { ...m, iconUrl: url } : m));
+      toast.success('Иконка обновлена');
+    } catch { toast.error('Ошибка загрузки'); }
+    setUploadingSlug(null);
+  };
+
+  const handleCoverUpload = async (slug: string, file: File) => {
+    try {
+      setUploadingSlug(slug);
+      const url = await uploadFile(file);
+      await updateModel(slug, { cover_image: url });
+      setModels(curr => curr.map(m => m.slug === slug ? { ...m, coverImage: url } : m));
+      toast.success('Обложка обновлена');
+    } catch { toast.error('Ошибка загрузки'); }
+    setUploadingSlug(null);
+  };
 
   const loadAll = async () => {
     try {
@@ -207,9 +238,22 @@ const Admin = () => {
 
   // ── News ────────────────────────────────────────────────────────────────────
 
+  const uploadCover = async (file: File): Promise<string> => {
+    const url = await uploadFile(file);
+    return url;
+  };
+
   const saveNews = async () => {
     if (!newsModal) return;
     try {
+      // Upload file-based cover image if selected
+      if (newsCoverFile) {
+        setNewsCoverUploading(true);
+        const url = await uploadCover(newsCoverFile.file);
+        newsModal.cover_image = url;
+        setNewsCoverFile(null);
+      }
+      setNewsCoverUploading(false);
       if ((newsModal as any).id) {
         await adminUpdateNews((newsModal as any).id, newsModal);
         toast.success('Новость обновлена');
@@ -220,6 +264,7 @@ const Admin = () => {
       setNewsModal(null);
       loadContent();
     } catch (e: any) { toast.error(e.message || 'Ошибка'); }
+    setNewsCoverUploading(false);
   };
 
   const deleteNews = async (id: string) => {
@@ -234,6 +279,14 @@ const Admin = () => {
   const saveBlog = async () => {
     if (!blogModal) return;
     try {
+      // Upload file-based cover image if selected
+      if (blogCoverFile) {
+        setBlogCoverUploading(true);
+        const url = await uploadCover(blogCoverFile.file);
+        blogModal.cover_image = url;
+        setBlogCoverFile(null);
+      }
+      setBlogCoverUploading(false);
       if ((blogModal as any).id) {
         await adminUpdateBlogPost((blogModal as any).id, blogModal);
         toast.success('Статья обновлена');
@@ -244,6 +297,7 @@ const Admin = () => {
       setBlogModal(null);
       loadContent();
     } catch (e: any) { toast.error(e.message || 'Ошибка'); }
+    setBlogCoverUploading(false);
   };
 
   const deleteBlog = async (id: string) => {
@@ -375,8 +429,19 @@ const Admin = () => {
                     <div key={m.slug}>
                       <div className="grid grid-cols-12 items-center px-3 py-2.5 hover:bg-white/[0.02] rounded-lg">
                         <div className="col-span-3">
-                          <p className="text-sm font-medium truncate">{m.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{m.vendor}</p>
+                          <div className="flex items-center gap-2">
+                            {m.iconUrl ? (
+                              <img src={m.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-xs">
+                                {m.type === 'image' ? '🖼' : '🎬'}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{m.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{m.vendor}</p>
+                            </div>
+                          </div>
                         </div>
                         <div className="col-span-2">
                           <Badge variant="outline" className="text-xs">{m.type === 'image' ? '🖼 Image' : '🎬 Video'}</Badge>
@@ -391,9 +456,25 @@ const Admin = () => {
                         <div className="col-span-1 flex justify-center">
                           <Switch checked={m.enabled} onCheckedChange={v => toggleModel(m.slug, v)} />
                         </div>
-                        <div className="col-span-1 flex justify-end">
+                        <div className="col-span-1 flex justify-end gap-1">
+                          <label
+                            className="text-xs px-2 py-1 rounded cursor-pointer text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                            title="Загрузить иконку"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="sr-only"
+                              onChange={e => {
+                                const file = e.target.files?.[0];
+                                if (file) handleIconUpload(m.slug, file);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
                           <button onClick={() => examplesSlug === m.slug ? setExamplesSlug(null) : openExamples(m.slug)}
-                            className="text-xs px-2 py-1 rounded text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
+                            className="text-xs px-1 py-1 rounded text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
                             {examplesSlug === m.slug ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </button>
                         </div>
@@ -420,11 +501,32 @@ const Admin = () => {
                             {examples.length === 0 && <p className="text-xs text-muted-foreground col-span-5">Нет примеров</p>}
                           </div>
 
-                          {/* Add new example */}
-                          <div className="flex gap-2">
-                            <Input placeholder="URL картинки" value={newExampleUrl} onChange={e => setNewExampleUrl(e.target.value)} className="h-8 text-xs flex-1" />
+                          {/* Add new example — file upload */}
+                          <div className="flex gap-2 items-center">
+                            <label className="flex-1">
+                              <div className="h-8 flex items-center px-3 rounded-md text-xs cursor-pointer hover:bg-white/5 transition-colors border" style={{ borderColor: "hsl(var(--border))" }}>
+                                {newExampleUrl ? `✓ ${newExampleUrl}` : 'Выбрать файл...'}
+                              </div>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="sr-only"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    try {
+                                      const url = await uploadFile(file);
+                                      setNewExampleUrl(url);
+                                    } catch {
+                                      toast.error('Ошибка загрузки файла');
+                                    }
+                                  }
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
                             <Input placeholder="Промпт (опционально)" value={newExamplePrompt} onChange={e => setNewExamplePrompt(e.target.value)} className="h-8 text-xs flex-1" />
-                            <Button variant="outlineGlow" onClick={addExample} className="h-8 text-xs px-3">
+                            <Button variant="outlineGlow" onClick={addExample} className="h-8 text-xs px-3" disabled={!newExampleUrl}>
                               <Plus className="w-3.5 h-3.5" />Добавить
                             </Button>
                           </div>
@@ -712,8 +814,32 @@ const Admin = () => {
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">URL обложки</label>
-            <Input value={newsModal.cover_image || ''} onChange={e => setNewsModal({ ...newsModal, cover_image: e.target.value })} placeholder="https://..." />
+            <label className="text-xs text-muted-foreground block mb-1">Обложка</label>
+            {/* Preview if cover_image set */}
+            {newsModal.cover_image && (
+              <img src={newsModal.cover_image} alt="" className="w-full h-32 object-cover rounded-md mb-2" style={{ border: "1px solid hsl(var(--border))" }} />
+            )}
+            <div className="flex gap-2">
+              <Input value={newsModal.cover_image || ''} onChange={e => setNewsModal({ ...newsModal, cover_image: e.target.value })} placeholder="https://..." className="flex-1" />
+              <label className="shrink-0">
+                <div className="h-10 px-3 rounded-md text-xs flex items-center cursor-pointer transition-colors hover:bg-white/10" style={{ background: "hsl(var(--foreground))", color: "hsl(var(--background))" }}>
+                  {newsCoverUploading ? '...' : 'Файл'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setNewsCoverFile({ file, url: URL.createObjectURL(file) });
+                        setNewsModal({ ...newsModal, cover_image: URL.createObjectURL(file) });
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                </div>
+              </label>
+            </div>
           </div>
           <div>
             <label className="text-xs text-muted-foreground block mb-1">SEO заголовок</label>
@@ -764,8 +890,31 @@ const Admin = () => {
             <Textarea value={blogModal.content || ''} onChange={e => setBlogModal({ ...blogModal, content: e.target.value })} rows={6} placeholder="Полный текст..." />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">URL обложки</label>
-            <Input value={blogModal.cover_image || ''} onChange={e => setBlogModal({ ...blogModal, cover_image: e.target.value })} placeholder="https://..." />
+            <label className="text-xs text-muted-foreground block mb-1">Обложка</label>
+            {blogModal.cover_image && (
+              <img src={blogModal.cover_image} alt="" className="w-full h-32 object-cover rounded-md mb-2" style={{ border: "1px solid hsl(var(--border))" }} />
+            )}
+            <div className="flex gap-2">
+              <Input value={blogModal.cover_image || ''} onChange={e => setBlogModal({ ...blogModal, cover_image: e.target.value })} placeholder="https://..." className="flex-1" />
+              <label className="shrink-0">
+                <div className="h-10 px-3 rounded-md text-xs flex items-center cursor-pointer transition-colors hover:bg-white/10" style={{ background: "hsl(var(--foreground))", color: "hsl(var(--background))" }}>
+                  {blogCoverUploading ? '...' : 'Файл'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setBlogCoverFile({ file, url: URL.createObjectURL(file) });
+                        setBlogModal({ ...blogModal, cover_image: URL.createObjectURL(file) });
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                </div>
+              </label>
+            </div>
           </div>
           <div>
             <label className="text-xs text-muted-foreground block mb-1">SEO заголовок</label>

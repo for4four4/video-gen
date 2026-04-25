@@ -85,6 +85,8 @@ export interface ModelFromDB {
   input_modalities: string;
   output_modalities: string;
   parameters_json: string;
+  icon_url?: string;
+  cover_image?: string;
 }
 
 export interface ModelExample {

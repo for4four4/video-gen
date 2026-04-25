@@ -107,7 +107,8 @@ router.get('/models', async (req: Request, res: Response) => {
       `SELECT slug, name, vendor, type, base_price_usd, coefficient,
               ROUND(base_price_usd * coefficient) as price_points,
               description, short_description, featured, speed, popularity,
-              input_modalities, output_modalities, parameters_json
+              input_modalities, output_modalities, parameters_json,
+              icon_url, cover_image
        FROM model_coefficients WHERE ${where}
        ORDER BY featured DESC NULLS LAST, popularity DESC NULLS LAST, name ASC`,
       values

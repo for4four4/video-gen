@@ -100,7 +100,7 @@ router.get('/payments', authMiddleware, adminMiddleware, async (req: AuthRequest
 router.get('/models', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const result = await pool.query(
-      `SELECT slug, name, vendor, type, base_price_usd, coefficient, enabled 
+      `SELECT slug, name, vendor, type, base_price_usd, coefficient, enabled, icon_url, cover_image
        FROM model_coefficients ORDER BY enabled DESC, type, name`
     );
     const models = result.rows.map(row => ({
@@ -109,6 +109,8 @@ router.get('/models', authMiddleware, adminMiddleware, async (req: AuthRequest, 
       coefficient: parseFloat(row.coefficient),
       pointsPrice: Math.round(parseFloat(row.base_price_usd) * 100 * parseFloat(row.coefficient)),
       enabled: row.enabled,
+      iconUrl: row.icon_url,
+      coverImage: row.cover_image,
     }));
     res.json(models);
   } catch (error) {
@@ -121,13 +123,15 @@ router.get('/models', authMiddleware, adminMiddleware, async (req: AuthRequest, 
 router.patch('/models/:slug', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { slug } = req.params;
-    const { coefficient, enabled } = req.body;
+    const { coefficient, enabled, icon_url, cover_image } = req.body;
     const updates: string[] = [];
     const values: any[] = [];
     let paramIndex = 1;
 
     if (coefficient !== undefined) { updates.push(`coefficient = $${paramIndex++}`); values.push(coefficient); }
     if (enabled !== undefined) { updates.push(`enabled = $${paramIndex++}`); values.push(enabled); }
+    if (icon_url !== undefined) { updates.push(`icon_url = $${paramIndex++}`); values.push(icon_url); }
+    if (cover_image !== undefined) { updates.push(`cover_image = $${paramIndex++}`); values.push(cover_image); }
 
     if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
 

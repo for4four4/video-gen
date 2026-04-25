@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pool from './db';
@@ -7,6 +8,7 @@ import authRoutes from './routes/auth';
 import adminRoutes from './routes/admin';
 import chatRoutes from './routes/chat';
 import contentRoutes from './routes/content';
+import uploadRoutes from './routes/upload';
 
 dotenv.config();
 
@@ -20,6 +22,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, '..', '..', 'public', 'uploads')));
 
 // Request logging
 app.use((req, res, next) => {
@@ -45,6 +48,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api', contentRoutes); // news, blog, pricing, models, chat/sessions
+app.use('/api/admin', uploadRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
