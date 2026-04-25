@@ -52,8 +52,6 @@ export const createTables = async () => {
     const newColumns = [
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS description TEXT`,
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS short_description TEXT`,
-      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS input_modalities TEXT`,
-      `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS output_modalities TEXT`,
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS parameters_json TEXT`,
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS featured BOOLEAN DEFAULT FALSE`,
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS speed VARCHAR(20) DEFAULT 'medium'`,
@@ -61,6 +59,22 @@ export const createTables = async () => {
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS icon_url TEXT`,
       `ALTER TABLE model_coefficients ADD COLUMN IF NOT EXISTS cover_image TEXT`,
     ];
+    for (const sql of newColumns) {
+      await client.query(sql).catch(() => {});
+    }
+
+    // Если колонка — массив, конвертируем в TEXT (было сломано в ранних миграциях)
+    // Для конвертации массива в строку: join с запятой
+    await client.query(`
+      ALTER TABLE model_coefficients
+      ALTER COLUMN input_modalities TYPE TEXT
+      USING COALESCE(array_to_string(input_modalities, ', '), input_modalities::TEXT)
+    `).catch(() => {});
+    await client.query(`
+      ALTER TABLE model_coefficients
+      ALTER COLUMN output_modalities TYPE TEXT
+      USING COALESCE(array_to_string(output_modalities, ', '), output_modalities::TEXT)
+    `).catch(() => {});
     for (const sql of newColumns) {
       await client.query(sql).catch(() => {}); // игнорируем ошибки если уже есть
     }
