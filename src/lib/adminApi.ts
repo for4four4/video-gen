@@ -87,7 +87,7 @@ export const updateSettings = (patch: Partial<AdminSettings>) =>
   adminFetch('/settings', 'PUT', patch);
 
 export const updateModel = (slug: string, patch: { coefficient?: number; enabled?: boolean; icon_url?: string; cover_image?: string }) =>
-  adminFetch(`/models/${slug}`, 'PATCH', patch);
+  adminFetch(`/models/${encodeURIComponent(slug)}`, 'PATCH', patch);
 
 // File upload helper — uses FormData
 export const uploadFile = async (file: File): Promise<string> => {
