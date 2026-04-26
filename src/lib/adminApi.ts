@@ -79,6 +79,9 @@ export const fetchModelCoefficients = (): Promise<ModelCoefficient[]> => adminFe
 export const syncModelsFromPolza = (): Promise<{ updated: number }> =>
   adminFetch('/models/sync', 'POST');
 
+export const deleteModel = (slug: string) =>
+  adminFetch(`/models/${encodeURIComponent(slug)}`, 'DELETE');
+
 export const fetchGenerations = (): Promise<GenerationLog[]> => adminFetch('/generations');
 
 export const fetchSettings = (): Promise<AdminSettings> => adminFetch('/settings');

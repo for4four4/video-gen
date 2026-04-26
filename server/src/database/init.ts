@@ -282,11 +282,15 @@ export const seedDefaultData = async () => {
     ];
 
     for (const [name, points, price, bonus, popular, order] of plans) {
-      await client.query(`
-        INSERT INTO pricing_plans (name, points, price_rub, bonus_points, popular, sort_order)
-        VALUES ($1,$2,$3,$4,$5,$6)
-        ON CONFLICT DO NOTHING
-      `, [name, points, price, bonus, popular, order]).catch(() => {});
+      const existing = await client.query(
+        `SELECT id FROM pricing_plans WHERE name = $1`, [name]
+      );
+      if (existing.rows.length === 0) {
+        await client.query(`
+          INSERT INTO pricing_plans (name, points, price_rub, bonus_points, popular, sort_order)
+          VALUES ($1,$2,$3,$4,$5,$6)
+        `, [name, points, price, bonus, popular, order]);
+      }
     }
 
     console.log('✅ Default data seeded');

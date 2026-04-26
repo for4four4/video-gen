@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   fetchOverview, fetchUsers, fetchPayments, fetchModelCoefficients,
-  fetchGenerations, fetchSettings, updateModel, updateUser,
+  fetchGenerations, fetchSettings, updateModel, updateUser, deleteModel,
   updateSettings, syncModelsFromPolza, uploadFile,
   type OverviewMetrics, type UserRow, type PaymentRow,
   type ModelCoefficient, type GenerationLog, type AdminSettings, type Range,
@@ -191,6 +191,15 @@ const Admin = () => {
     setModels(curr => curr.map(m => m.slug === slug ? { ...m, enabled } : m));
     await updateModel(slug, { enabled });
     toast.success(enabled ? 'Модель включена' : 'Выключена');
+  };
+
+  const handleDeleteModel = async (slug: string, name: string) => {
+    if (!confirm(`Удалить модель "${name}"? Это действие нельзя отменить.`)) return;
+    setModels(curr => curr.filter(m => m.slug !== slug));
+    try {
+      await deleteModel(slug);
+      toast.success(`Модель "${name}" удалена`);
+    } catch { toast.error('Ошибка удаления'); }
   };
 
   const openExamples = async (slug: string) => {
@@ -474,8 +483,16 @@ const Admin = () => {
                             />
                           </label>
                           <button onClick={() => examplesSlug === m.slug ? setExamplesSlug(null) : openExamples(m.slug)}
-                            className="text-xs px-1 py-1 rounded text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
+                            className="text-xs px-1 py-1 rounded text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                            title="Примеры"
+                          >
                             {examplesSlug === m.slug ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                          <button onClick={() => handleDeleteModel(m.slug, m.name)}
+                            className="text-xs px-1 py-1 rounded text-muted-foreground hover:text-red-400 hover:bg-white/5 transition-colors"
+                            title="Удалить модель"
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>

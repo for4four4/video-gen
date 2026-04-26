@@ -188,22 +188,44 @@ router.delete('/models/purge', authMiddleware, adminMiddleware, async (req: Auth
   try {
     // Сначала убираем FK ссылки из generations
     await pool.query(`UPDATE generations SET model_slug = NULL WHERE model_slug IS NOT NULL`);
-    
+
     // Удаляем все модели
     const result = await pool.query(`DELETE FROM model_coefficients`);
-    
+
     // Удаляем примеры
     await pool.query(`DELETE FROM model_examples`);
-    
+
     const { clearCoefficientsCache } = await import('../services/polza');
     clearCoefficientsCache();
-    
-    res.json({ 
+
+    res.json({
       deleted: result.rowCount || 0,
-      message: `Полная очистка: удалено ${result.rowCount || 0} моделей. Выполните Sync для загрузки актуальных.` 
+      message: `Полная очистка: удалено ${result.rowCount || 0} моделей. Выполните Sync для загрузки актуальных.`
     });
   } catch (error: any) {
     console.error('Purge models error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// DELETE /api/admin/models/:slug — удалить конкретную модель
+router.delete('/models/:slug', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const slug = decodeURIComponent(req.params.slug as string);
+    await pool.query(
+      `UPDATE generations SET model_slug = NULL WHERE model_slug = $1`, [slug]
+    );
+    await pool.query(`DELETE FROM model_examples WHERE model_slug = $1`, [slug]);
+
+    const result = await pool.query(`DELETE FROM model_coefficients WHERE slug = $1`, [slug]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Model not found' });
+
+    const { clearCoefficientsCache } = await import('../services/polza');
+    clearCoefficientsCache();
+
+    res.json({ message: `Model "${slug}" deleted` });
+  } catch (error: any) {
+    console.error('Delete model error:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
