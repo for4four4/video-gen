@@ -143,6 +143,7 @@ export async function generateImage(data: {
   output_format?: string;
   seed?: number;
   n?: number;
+  sessionId?: string;
 }): Promise<GenerationResult> {
   const token = getToken();
   const response = await fetch(`${API_BASE}/chat/image`, {
@@ -160,6 +161,7 @@ export async function generateImage(data: {
       output_format: data.output_format,
       seed: data.seed,
       n: data.n,
+      sessionId: data.sessionId,
     }),
   });
   const result = await handleResponse<{
@@ -188,6 +190,7 @@ export async function generateVideo(data: {
   resolution?: string;
   sound?: string;
   mode?: string;
+  sessionId?: string;
 }): Promise<GenerationResult> {
   const token = getToken();
   const response = await fetch(`${API_BASE}/chat/video`, {
@@ -204,6 +207,7 @@ export async function generateVideo(data: {
       resolution: data.resolution,
       sound: data.sound,
       mode: data.mode,
+      sessionId: data.sessionId,
     }),
   });
   const result = await handleResponse<{
@@ -313,6 +317,35 @@ export async function deleteSession(sessionId: string): Promise<void> {
     const error = await response.json().catch(() => ({ message: "Delete failed" }));
     throw new Error(error.message);
   }
+}
+
+export interface GenerationHistoryItem {
+  id: string;
+  modelSlug: string;
+  modelName: string;
+  prompt: string;
+  resultUrl?: string;
+  cost: number;
+  createdAt: string;
+}
+
+/** GET /api/chat/history — история всех генераций пользователя */
+export async function fetchGenerationHistory(limit = 100): Promise<GenerationHistoryItem[]> {
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/chat/history?limit=${limit}`, {
+    headers: { ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
+  });
+  if (!response.ok) return [];
+  const data: any[] = await response.json().catch(() => []);
+  return data.map((item: any) => ({
+    id: item.id,
+    modelSlug: item.modelSlug || item.model_slug || '',
+    modelName: item.modelSlug || item.model_slug || '',
+    prompt: item.title || item.prompt || '',
+    resultUrl: item.messages?.[1]?.image || item.result_url,
+    cost: item.messages?.[1]?.cost || item.points_spent || 0,
+    createdAt: item.createdAt || item.created_at || '',
+  }));
 }
 
 /** GET /api/chat/balance */

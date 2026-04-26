@@ -208,9 +208,9 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
     // Если передан sessionId — сохраняем в chat_sessions/chat_messages
     if (req.body.sessionId) {
       await pool.query(
-        `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent, result_url)
-         VALUES ($1,$2,'user',$3,$4,0,$5)`,
-        [req.body.sessionId, userId, prompt, actualModel, polzaResult.imageUrl]
+        `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent)
+         VALUES ($1,$2,'user',$3,$4,0)`,
+        [req.body.sessionId, userId, prompt, actualModel]
       );
       await pool.query(
         `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent, result_url)
@@ -218,9 +218,8 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
         [req.body.sessionId, userId, 'Готово!', actualModel, actualCost, polzaResult.imageUrl]
       );
       await pool.query(
-        `UPDATE chat_sessions SET title=COALESCE((SELECT prompt FROM chat_messages WHERE session_id=$1 AND role='user' ORDER BY created_at ASC LIMIT 1),$7),
-         updated_at=CURRENT_TIMESTAMP, model_slug=$8 WHERE id=$1`,
-        [req.body.sessionId, actualModel, prompt.slice(0, 40)]
+        `UPDATE chat_sessions SET title=$2, updated_at=CURRENT_TIMESTAMP, model_slug=$3 WHERE id=$1`,
+        [req.body.sessionId, prompt.slice(0, 40), actualModel]
       );
     }
 
@@ -323,9 +322,9 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
     // Если передан sessionId — сохраняем в chat_messages
     if (req.body.sessionId) {
       await pool.query(
-        `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent, result_url)
-         VALUES ($1,$2,'user',$3,$4,0,$5)`,
-        [req.body.sessionId, userId, prompt, actualModel, polzaResult.videoUrl]
+        `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent)
+         VALUES ($1,$2,'user',$3,$4,0)`,
+        [req.body.sessionId, userId, prompt, actualModel]
       );
       await pool.query(
         `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent, result_url)
@@ -333,9 +332,8 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
         [req.body.sessionId, userId, 'Готово!', actualModel, actualCost, polzaResult.videoUrl]
       );
       await pool.query(
-        `UPDATE chat_sessions SET title=COALESCE((SELECT prompt FROM chat_messages WHERE session_id=$1 AND role='user' ORDER BY created_at ASC LIMIT 1),$7),
-         updated_at=CURRENT_TIMESTAMP, model_slug=$8 WHERE id=$1`,
-        [req.body.sessionId, actualModel, prompt.slice(0, 40)]
+        `UPDATE chat_sessions SET title=$2, updated_at=CURRENT_TIMESTAMP, model_slug=$3 WHERE id=$1`,
+        [req.body.sessionId, prompt.slice(0, 40), actualModel]
       );
     }
 

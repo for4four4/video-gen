@@ -16,7 +16,7 @@ import {
   type ModelParameter,
 } from "@/lib/chatApi";
 import { toast } from "sonner";
-import { Loader2, Plus, Search, Image as ImageIcon, Video, Trash2 } from "lucide-react";
+import { Loader2, Plus, Search, Image as ImageIcon, Video, Trash2, Paperclip, X } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 type Msg = {
@@ -176,15 +176,42 @@ const Chat = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [seed, setSeed] = useState("");
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loadingSessionId, setLoadingSessionId] = useState<string | null>(null);
+  const loading = loadingSessionId !== null;
   const [init, setInit] = useState(true);
   const [balance, setBalance] = useState(0);
   const [search, setSearch] = useState("");
   const [modelFilter, setModelFilter] = useState<"all" | "image" | "video">("all");
+  const [refFile, setRefFile] = useState<File | null>(null);
+  const [refPreview, setRefPreview] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const model = models.find((m) => m.slug === activeModelSlug);
   const active = sessions.find((s) => s.id === activeId);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (refPreview) URL.revokeObjectURL(refPreview);
+    setRefFile(file);
+    setRefPreview(URL.createObjectURL(file));
+  };
+
+  const clearRefFile = () => {
+    if (refPreview) URL.revokeObjectURL(refPreview);
+    setRefFile(null);
+    setRefPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  useEffect(() => {
+    clearRefFile();
+  }, [activeId]);
+
+  useEffect(() => {
+    return () => { if (refPreview) URL.revokeObjectURL(refPreview); };
+  }, []);
 
   // Build editable params from current model
   const editableParams = useMemo(() => getEditableParams(model), [model]);
@@ -229,14 +256,17 @@ const Chat = () => {
                 title: s.title,
                 updatedAt: new Date(s.updated_at).getTime(),
                 modelSlug: s.model_slug,
-                messages: msgs.map((m) => ({
-                  role: m.role as "user" | "assistant",
-                  text: m.content,
-                  image: m.result_url && m.role !== "user" ? m.result_url : undefined,
-                  video: undefined,
-                  model: m.model_slug,
-                  cost: m.points_spent > 0 ? m.points_spent : undefined,
-                })),
+                messages: msgs.map((m) => {
+                  const isVideoUrl = m.result_url ? /\.(mp4|webm|mov)(\?|$)/i.test(m.result_url) : false;
+                  return {
+                    role: m.role as "user" | "assistant",
+                    text: m.content,
+                    image: m.result_url && m.role !== "user" && !isVideoUrl ? m.result_url : undefined,
+                    video: m.result_url && m.role !== "user" && isVideoUrl ? m.result_url : undefined,
+                    model: m.model_slug,
+                    cost: m.points_spent > 0 ? m.points_spent : undefined,
+                  };
+                }),
               };
             })
           );
@@ -320,7 +350,7 @@ const Chat = () => {
   const send = useCallback(async () => {
     const prompt = input.trim();
     if (!prompt || !model || loading) return;
-    setLoading(true);
+    setLoadingSessionId("pending");
     setInput("");
 
     const paramsSummary = buildParamsSummary();
@@ -345,9 +375,9 @@ const Chat = () => {
           modelSlug: model.slug,
           messages: [userMsg],
         };
-        setSessions((c) => [s, ...c]);
+        setSessions((c) => [s, ...c.filter((x) => x.id !== "")]);
       } catch {
-        setLoading(false);
+        setLoadingSessionId(null);
         toast.error("Ошибка создания сессии");
         setInput(prompt);
         return;
@@ -362,6 +392,7 @@ const Chat = () => {
     try {
       const seedNum = seed && seed !== "auto" && seed !== "" ? parseInt(seed) : undefined;
       const usedSessionId = sessionId || activeId;
+      setLoadingSessionId(usedSessionId || "pending");
       let result: any;
 
       if (model.type === "image") {
@@ -373,6 +404,7 @@ const Chat = () => {
           quality: settings.quality,
           output_format: settings.output_format,
           seed: seedNum && !isNaN(seedNum) ? seedNum : undefined,
+          sessionId: usedSessionId || undefined,
         });
       } else if (model.type === "video") {
         result = await generateVideo({
@@ -383,6 +415,7 @@ const Chat = () => {
           resolution: settings.resolution,
           sound: settings.sound || settings.generate_audio,
           mode: settings.mode,
+          sessionId: usedSessionId || undefined,
         });
       } else {
         result = await sendChatMessage({ modelSlug: model.slug, message: prompt });
@@ -414,10 +447,9 @@ const Chat = () => {
       );
     } catch (e: any) {
       toast.error(e.message || "Ошибка генерации");
-      // Возвращаем промпт в поле ввода
       setInput(prompt);
     } finally {
-      setLoading(false);
+      setLoadingSessionId(null);
     }
   }, [input, model, loading, active, activeId, sessions, settings, seed, editableParams]);
 
@@ -440,10 +472,10 @@ const Chat = () => {
 
   return (
     <SiteLayout>
-      <div className="max-w-[1320px] mx-auto px-4 py-4 pt-20">
+      <div className="max-w-[1320px] mx-auto px-4 pb-4 pt-20" style={{ height: "calc(100vh - 64px)" }}>
         <div
-          className="grid gap-4"
-          style={{ gridTemplateColumns: "240px 1fr 280px", minHeight: "calc(100vh - 100px)" }}
+          className="grid gap-4 h-full overflow-hidden"
+          style={{ gridTemplateColumns: "240px 1fr 280px" }}
         >
           {/* ── LEFT SIDEBAR: История ── */}
           <aside className="rounded-[18px] overflow-hidden flex flex-col" style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
@@ -569,7 +601,7 @@ const Chat = () => {
                 </div>
               ))}
 
-              {loading && (
+              {loadingSessionId === activeId && loadingSessionId !== null && (
                 <div className="flex gap-3">
                   <div className="w-8 h-8 rounded-full shrink-0" style={{ background: "conic-gradient(from 120deg, #b478fd, #ff6ba9, #6adfff, #b478fd)" }} />
                   <div className="rounded-[14px] rounded-tl-sm px-4 py-3 flex items-center gap-2" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid hsl(var(--border))" }}>
@@ -590,9 +622,28 @@ const Chat = () => {
             {/* Input bar */}
             <div className="p-4" style={{ borderTop: "1px solid hsl(var(--border))" }}>
               <div className="rounded-[14px] p-3" style={{ background: "rgba(0,0,0,0.3)", border: "1px solid hsl(var(--border))" }}>
+                {refFile && (
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                    <div className="flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md" style={{ background: "rgba(180,120,253,0.12)", border: "1px solid rgba(180,120,253,0.3)", color: "hsl(var(--accent))" }}>
+                      {refFile.type.startsWith('video/') ? <Video className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
+                      <span className="max-w-[140px] truncate">{refFile.name}</span>
+                    </div>
+                    <button onClick={clearRefFile} className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-white/10" style={{ color: "rgba(250,250,250,0.5)" }}>
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 mb-2">
-                  <button className="w-7 h-7 rounded-md flex items-center justify-center" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid hsl(var(--border))" }}>
-                    <span className="text-[14px]">+</span>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
+                    title="Прикрепить файл"
+                    style={{
+                      background: refFile ? "rgba(180,120,253,0.15)" : "rgba(255,255,255,0.06)",
+                      border: `1px solid ${refFile ? "rgba(180,120,253,0.4)" : "hsl(var(--border))"}`,
+                    }}
+                  >
+                    {refFile ? <Paperclip className="w-3.5 h-3.5" style={{ color: "hsl(var(--accent))" }} /> : <span className="text-[14px]">+</span>}
                   </button>
                   <div className="flex items-center gap-1 text-[10px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>
                     <span className="px-1.5 py-0.5 rounded" style={{ background: "rgba(180,120,253,0.12)", color: "hsl(var(--accent))" }}>
@@ -723,14 +774,46 @@ const Chat = () => {
                 </div>
               )}
 
-              {/* Reference drop zone */}
+              {/* File upload */}
               {model && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: "rgba(250,250,250,0.42)" }}>Референс</div>
-                  <label className="aspect-video rounded-md flex flex-col items-center justify-center text-[11px] cursor-pointer transition-colors hover:border-accent/50" style={{ background: "rgba(0,0,0,0.3)", border: "1px dashed rgba(255,255,255,0.14)", color: "rgba(250,250,250,0.42)" }}>
-                    <input type="file" accept="image/*" className="sr-only" />
-                    + перетащите картинку
-                  </label>
+                  <div className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: "rgba(250,250,250,0.42)" }}>Опорное изображение</div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    className="sr-only"
+                    onChange={handleFileSelect}
+                  />
+                  {refPreview ? (
+                    <div className="relative rounded-md overflow-hidden" style={{ aspectRatio: "16/9" }}>
+                      {refFile?.type.startsWith('video/') ? (
+                        <video src={refPreview} className="w-full h-full object-cover" muted playsInline />
+                      ) : (
+                        <img src={refPreview} alt="Превью" className="w-full h-full object-cover" />
+                      )}
+                      <button
+                        onClick={clearRefFile}
+                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center"
+                        style={{ background: "rgba(0,0,0,0.7)", color: "white" }}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="absolute bottom-1.5 left-1.5 text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: "rgba(0,0,0,0.6)", color: "rgba(255,255,255,0.7)" }}>
+                        {refFile?.name}
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full rounded-md flex flex-col items-center justify-center gap-1.5 text-[11px] transition-all hover:border-accent/40"
+                      style={{ aspectRatio: "16/9", background: "rgba(0,0,0,0.3)", border: "1px dashed rgba(255,255,255,0.14)", color: "rgba(250,250,250,0.42)" }}
+                    >
+                      <Paperclip className="w-4 h-4 opacity-50" />
+                      <span>прикрепить файл</span>
+                      <span className="text-[9px] opacity-50">изображение или видео</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

@@ -48,7 +48,8 @@ const SideAmbient = ({ variant = "models" }: { variant?: Variant }) => {
       {/* ── Левая колонка ────────────────────────────────────────── */}
       <div
         aria-hidden
-        className="hidden lg:block fixed left-0 top-0 bottom-0 w-[18vw] xl:w-[22vw] z-0 pointer-events-none overflow-hidden"
+        className="hidden lg:block fixed left-0 top-0 w-[18vw] xl:w-[22vw] z-0 pointer-events-none overflow-hidden"
+        style={{ bottom: "320px" }}
       >
         {/* Aurora */}
         <div
@@ -90,12 +91,15 @@ const SideAmbient = ({ variant = "models" }: { variant?: Variant }) => {
         ))}
         {/* Затухание к контенту */}
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-background" />
+        {/* Затухание к низу */}
+        <div className="absolute inset-x-0 bottom-0 h-40" style={{ background: "linear-gradient(to top, hsl(var(--background)), transparent)" }} />
       </div>
 
       {/* ── Правая колонка ──────────────────────────────────────── */}
       <div
         aria-hidden
-        className="hidden lg:block fixed right-0 top-0 bottom-0 w-[18vw] xl:w-[22vw] z-0 pointer-events-none overflow-hidden"
+        className="hidden lg:block fixed right-0 top-0 w-[18vw] xl:w-[22vw] z-0 pointer-events-none overflow-hidden"
+        style={{ bottom: "320px" }}
       >
         <div
           className="absolute -inset-1/2 opacity-70 animate-aurora"
@@ -135,6 +139,8 @@ const SideAmbient = ({ variant = "models" }: { variant?: Variant }) => {
           />
         ))}
         <div className="absolute inset-0 bg-gradient-to-l from-transparent via-transparent to-background" />
+        {/* Затухание к низу */}
+        <div className="absolute inset-x-0 bottom-0 h-40" style={{ background: "linear-gradient(to top, hsl(var(--background)), transparent)" }} />
       </div>
     </>
   );
