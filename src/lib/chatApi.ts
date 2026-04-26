@@ -143,6 +143,7 @@ export async function generateImage(data: {
   output_format?: string;
   seed?: number;
   n?: number;
+  sessionId?: string;
 }): Promise<GenerationResult> {
   const token = getToken();
   const response = await fetch(`${API_BASE}/chat/image`, {
@@ -160,6 +161,7 @@ export async function generateImage(data: {
       output_format: data.output_format,
       seed: data.seed,
       n: data.n,
+      sessionId: data.sessionId,
     }),
   });
   const result = await handleResponse<{
@@ -188,6 +190,7 @@ export async function generateVideo(data: {
   resolution?: string;
   sound?: string;
   mode?: string;
+  sessionId?: string;
 }): Promise<GenerationResult> {
   const token = getToken();
   const response = await fetch(`${API_BASE}/chat/video`, {
@@ -204,6 +207,7 @@ export async function generateVideo(data: {
       resolution: data.resolution,
       sound: data.sound,
       mode: data.mode,
+      sessionId: data.sessionId,
     }),
   });
   const result = await handleResponse<{

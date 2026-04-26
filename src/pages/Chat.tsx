@@ -229,14 +229,17 @@ const Chat = () => {
                 title: s.title,
                 updatedAt: new Date(s.updated_at).getTime(),
                 modelSlug: s.model_slug,
-                messages: msgs.map((m) => ({
-                  role: m.role as "user" | "assistant",
-                  text: m.content,
-                  image: m.result_url && m.role !== "user" ? m.result_url : undefined,
-                  video: undefined,
-                  model: m.model_slug,
-                  cost: m.points_spent > 0 ? m.points_spent : undefined,
-                })),
+                messages: msgs.map((m) => {
+                  const isVideoUrl = m.result_url ? /\.(mp4|webm|mov)(\?|$)/i.test(m.result_url) : false;
+                  return {
+                    role: m.role as "user" | "assistant",
+                    text: m.content,
+                    image: m.result_url && m.role !== "user" && !isVideoUrl ? m.result_url : undefined,
+                    video: m.result_url && m.role !== "user" && isVideoUrl ? m.result_url : undefined,
+                    model: m.model_slug,
+                    cost: m.points_spent > 0 ? m.points_spent : undefined,
+                  };
+                }),
               };
             })
           );
@@ -345,7 +348,7 @@ const Chat = () => {
           modelSlug: model.slug,
           messages: [userMsg],
         };
-        setSessions((c) => [s, ...c]);
+        setSessions((c) => [s, ...c.filter((x) => x.id !== "")]);
       } catch {
         setLoading(false);
         toast.error("Ошибка создания сессии");
@@ -373,6 +376,7 @@ const Chat = () => {
           quality: settings.quality,
           output_format: settings.output_format,
           seed: seedNum && !isNaN(seedNum) ? seedNum : undefined,
+          sessionId: usedSessionId || undefined,
         });
       } else if (model.type === "video") {
         result = await generateVideo({
@@ -383,6 +387,7 @@ const Chat = () => {
           resolution: settings.resolution,
           sound: settings.sound || settings.generate_audio,
           mode: settings.mode,
+          sessionId: usedSessionId || undefined,
         });
       } else {
         result = await sendChatMessage({ modelSlug: model.slug, message: prompt });
