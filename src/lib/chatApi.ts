@@ -319,6 +319,35 @@ export async function deleteSession(sessionId: string): Promise<void> {
   }
 }
 
+export interface GenerationHistoryItem {
+  id: string;
+  modelSlug: string;
+  modelName: string;
+  prompt: string;
+  resultUrl?: string;
+  cost: number;
+  createdAt: string;
+}
+
+/** GET /api/chat/history — история всех генераций пользователя */
+export async function fetchGenerationHistory(limit = 100): Promise<GenerationHistoryItem[]> {
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/chat/history?limit=${limit}`, {
+    headers: { ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
+  });
+  if (!response.ok) return [];
+  const data: any[] = await response.json().catch(() => []);
+  return data.map((item: any) => ({
+    id: item.id,
+    modelSlug: item.modelSlug || item.model_slug || '',
+    modelName: item.modelSlug || item.model_slug || '',
+    prompt: item.title || item.prompt || '',
+    resultUrl: item.messages?.[1]?.image || item.result_url,
+    cost: item.messages?.[1]?.cost || item.points_spent || 0,
+    createdAt: item.createdAt || item.created_at || '',
+  }));
+}
+
 /** GET /api/chat/balance */
 export async function fetchUserBalance(): Promise<UserBalance> {
   const token = getToken();
