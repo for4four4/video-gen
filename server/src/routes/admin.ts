@@ -119,8 +119,8 @@ router.get('/models', authMiddleware, adminMiddleware, async (req: AuthRequest, 
   }
 });
 
-// PATCH /api/admin/models/:slug
-router.patch('/models/:slug', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+// PATCH /api/admin/models/:slug(*) — * allows slugs containing slashes
+router.patch('/models/:slug(*)', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { slug } = req.params;
     const { coefficient, enabled, icon_url, cover_image } = req.body;
