@@ -94,6 +94,17 @@ export const authService = {
     window.location.href = '/login';
   },
 
+  // Обновить данные пользователя из API (баланс)
+  refreshUser: async (): Promise<void> => {
+    try {
+      const response = await api.get<{ user: User }>('/auth/me');
+      const user = response.data.user;
+      localStorage.setItem('user', JSON.stringify(user));
+    } catch {
+      // ignore — fallback to cached
+    }
+  },
+
   // Проверка текущего пользователя
   getCurrentUser: (): User | null => {
     const userStr = localStorage.getItem('user');

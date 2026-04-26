@@ -336,6 +336,9 @@ const Chat = () => {
         setBalance((p) => Math.max(0, p - result.cost));
       }
 
+      // Обновить баланс в шапке и других компонентах
+      window.dispatchEvent(new CustomEvent("balance_updated"));
+
       const isVideo = model.type === "video";
       const assistantMsg: Msg = {
         role: "assistant",

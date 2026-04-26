@@ -17,18 +17,32 @@ const Header = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const checkAuth = () => {
+    const checkAuth = async () => {
       setUser(authService.getCurrentUser());
       setIsLoading(false);
     };
     checkAuth();
+
+    const refreshBalance = async () => {
+      if (authService.isAuthenticated()) {
+        await authService.refreshUser();
+        setUser(authService.getCurrentUser());
+      }
+    };
+
+    // Обновляем баланс по кастомному событию (после генерации)
+    window.addEventListener("balance_updated", refreshBalance);
+
     const handler = (e: StorageEvent) => {
       if (e.key === "token" || e.key === "user") {
         setUser(authService.getCurrentUser());
       }
     };
     window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
+    return () => {
+      window.removeEventListener("storage", handler);
+      window.removeEventListener("balance_updated", refreshBalance);
+    };
   }, []);
 
   if (isLoading) return null;
