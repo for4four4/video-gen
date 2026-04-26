@@ -6,7 +6,11 @@ import {
   sendChatMessage,
   generateImage,
   generateVideo,
-  fetchChatHistory,
+  fetchSessions,
+  fetchSessionMessages,
+  createSession,
+  updateSessionTitle,
+  deleteSession,
   fetchUserBalance,
   type ChatModel,
   type ModelParameter,
@@ -206,39 +210,46 @@ const Chat = () => {
   useEffect(() => {
     const boot = async () => {
       try {
-        const [loadedModels, history, bal] = await Promise.all([
+        const [loadedModels, sessionsList, bal] = await Promise.all([
           fetchChatModels(),
-          fetchChatHistory().catch(() => []),
+          fetchSessions().catch(() => []),
           fetchUserBalance().catch(() => ({ points: 50 })),
         ]);
         setModels(loadedModels);
         setBalance(bal.points);
         if (loadedModels[0]) setActiveModelSlug(loadedModels[0].slug);
 
-        if (history.length > 0) {
-          const converted = history.map((s) => ({
-            id: s.id,
-            title: s.title,
-            updatedAt: new Date(s.updatedAt).getTime(),
-            modelSlug: s.modelSlug,
-            messages: s.messages.map((m) => ({
-              role: m.role as "user" | "assistant",
-              text: m.content,
-              image: m.image,
-              model: m.model,
-              cost: m.cost,
-            })),
-          }));
-          setSessions(converted);
-          setActiveId(converted[0].id);
+        if (sessionsList.length > 0) {
+          // Загрузить сообщения для каждой сессии
+          const sessionsWithMsgs = await Promise.all(
+            sessionsList.map(async (s) => {
+              const msgs = await fetchSessionMessages(s.id).catch(() => []);
+              return {
+                id: s.id,
+                title: s.title,
+                updatedAt: new Date(s.updated_at).getTime(),
+                modelSlug: s.model_slug,
+                messages: msgs.map((m) => ({
+                  role: m.role as "user" | "assistant",
+                  text: m.content,
+                  image: m.result_url && m.role !== "user" ? m.result_url : undefined,
+                  video: undefined,
+                  model: m.model_slug,
+                  cost: m.points_spent > 0 ? m.points_spent : undefined,
+                })),
+              };
+            })
+          );
+          setSessions(sessionsWithMsgs);
+          setActiveId(sessionsWithMsgs[0].id);
         } else {
           const demo: Session = {
-            id: `c_${Date.now()}`,
+            id: "",
             title: "Новый чат",
             updatedAt: Date.now(),
             modelSlug: loadedModels[0]?.slug || "",
             messages: [
-              { role: "assistant", text: "Привет! Выберите модель и опишите, что хотите сгенерировать. Параметры справа меняются в зависимости от модели.", model: "Imagination" },
+              { role: "assistant", text: "Привет! Выберите модель и опишите, что хотите сгенерировать.", model: "Imagination" },
             ],
           };
           setSessions([demo]);
@@ -254,20 +265,25 @@ const Chat = () => {
   }, []);
 
   useEffect(() => {
+    // Scroll only when messages length changes (new message added), not on session switch
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [active?.messages]);
+  }, [activeId, active?.messages?.length]);
 
-  const newChat = () => {
-    const id = `c_${Date.now()}`;
-    const s: Session = {
-      id,
-      title: "Новый чат",
-      updatedAt: Date.now(),
-      modelSlug: activeModelSlug,
-      messages: [{ role: "assistant", text: "Новый чат начат. Что генерируем?", model: "Imagination" }],
-    };
-    setSessions((c) => [s, ...c]);
-    setActiveId(id);
+  const newChat = async () => {
+    try {
+      const session = await createSession({ title: "Новый чат", model_slug: activeModelSlug });
+      const s: Session = {
+        id: session.id,
+        title: "Новый чат",
+        updatedAt: Date.now(),
+        modelSlug: session.model_slug || activeModelSlug,
+        messages: [{ role: "assistant", text: "Новый чат начат. Что генерируем?", model: "Imagination" }],
+      };
+      setSessions((c) => [s, ...c]);
+      setActiveId(session.id);
+    } catch {
+      toast.error("Ошибка создания чата");
+    }
   };
 
   const patchActive = (patch: Partial<Session>) => {
@@ -300,11 +316,39 @@ const Chat = () => {
       paramsSummary: paramsSummary || undefined,
     };
     const isFirst = !active?.messages.some((m) => m.role === "user");
-    patchActive({ messages: [...(active?.messages || []), userMsg], title: isFirst ? prompt.slice(0, 40) : active?.title });
+
+    // Если первый пользовательский месседж — создать или обновить сессию
+    let sessionId = activeId;
+    if (isFirst && !activeId) {
+      try {
+        const session = await createSession({ title: prompt.slice(0, 40), model_slug: model.slug });
+        sessionId = session.id;
+        setActiveId(sessionId);
+        const s: Session = {
+          id: session.id,
+          title: prompt.slice(0, 40),
+          updatedAt: Date.now(),
+          modelSlug: model.slug,
+          messages: [userMsg],
+        };
+        setSessions((c) => [s, ...c]);
+      } catch {
+        setLoading(false);
+        toast.error("Ошибка создания сессии");
+        setInput(prompt);
+        return;
+      }
+    } else if (isFirst && activeId) {
+      await updateSessionTitle(activeId, prompt.slice(0, 40)).catch(() => {});
+      setSessions((c) => c.map((s) => s.id === activeId ? { ...s, messages: [userMsg], title: prompt.slice(0, 40) } : s));
+    } else {
+      setSessions((c) => c.map((s) => s.id === (sessionId || activeId) ? { ...s, messages: [...s.messages, userMsg] } : s));
+    }
 
     try {
-      let result: any;
       const seedNum = seed && seed !== "auto" && seed !== "" ? parseInt(seed) : undefined;
+      const usedSessionId = sessionId || activeId;
+      let result: any;
 
       if (model.type === "image") {
         result = await generateImage({
@@ -330,33 +374,35 @@ const Chat = () => {
         result = await sendChatMessage({ modelSlug: model.slug, message: prompt });
       }
 
-      if (result.remainingBalance !== undefined) {
-        setBalance(result.remainingBalance);
-      } else {
-        setBalance((p) => Math.max(0, p - result.cost));
-      }
-
-      // Обновить баланс в шапке и других компонентах
-      window.dispatchEvent(new CustomEvent("balance_updated"));
-
-      const isVideo = model.type === "video";
       const assistantMsg: Msg = {
         role: "assistant",
         text: result.messages?.[0]?.content || "Готово!",
-        image: !isVideo ? result.result : undefined,
-        video: isVideo ? result.result : undefined,
+        image: model.type === "image" ? result.result : undefined,
+        video: model.type === "video" ? result.result : undefined,
         model: model.name,
         cost: result.cost,
       };
-      setSessions((c) => c.map((s) => s.id === activeId ? { ...s, updatedAt: Date.now(), messages: [...s.messages, assistantMsg] } : s));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Ошибка генерации");
-      // Remove the user message on error
-      setSessions((c) => c.map((s) => s.id === activeId ? { ...s, messages: s.messages.filter((_, i) => i !== s.messages.length - 1) } : s));
+
+      if (result.remainingBalance !== undefined) setBalance(result.remainingBalance);
+
+      if (usedSessionId) {
+        try { await updateSessionTitle(usedSessionId, prompt.slice(0, 40)).catch(() => {}); } catch {}
+      }
+
+      setSessions((c) =>
+        c.map((s) => s.id === (usedSessionId || activeId)
+          ? { ...s, messages: [...s.messages, assistantMsg] }
+          : s
+        )
+      );
+    } catch (e: any) {
+      toast.error(e.message || "Ошибка генерации");
+      // Возвращаем промпт в поле ввода
+      setInput(prompt);
     } finally {
       setLoading(false);
     }
-  }, [input, model, loading, active, activeId, settings, seed, editableParams]);
+  }, [input, model, loading, active, activeId, sessions, settings, seed, editableParams]);
 
   const filteredSessions = sessions.filter((s) =>
     !search || s.title.toLowerCase().includes(search.toLowerCase())

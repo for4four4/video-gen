@@ -254,28 +254,58 @@ export async function sendChatMessage(data: {
   };
 }
 
-/** GET /api/chat/history */
-export async function fetchChatHistory(): Promise<ChatSession[]> {
+/** GET /api/chat/sessions — real sessions with messages */
+export async function fetchSessions(): Promise<Array<{
+  id: string; title: string; model_slug: string; model_name: string;
+  created_at: string; updated_at: string; message_count: number; last_image?: string;
+}>> {
   const token = getToken();
-  const response = await fetch(`${API_BASE}/chat/history`, {
+  const response = await fetch(`${API_BASE}/chat/sessions`, {
     headers: { ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
   });
-  return handleResponse<ChatSession[]>(response);
+  return handleResponse(response);
 }
 
-/** GET /api/chat/session/:id */
-export async function fetchChatSession(sessionId: string): Promise<ChatSession> {
+/** GET /api/chat/sessions/:id/messages */
+export async function fetchSessionMessages(sessionId: string): Promise<Array<{
+  id: string; role: string; content: string; result_url?: string;
+  model_slug: string; points_spent: number; created_at: string;
+}>> {
   const token = getToken();
-  const response = await fetch(`${API_BASE}/chat/session/${sessionId}`, {
+  const response = await fetch(`${API_BASE}/chat/sessions/${sessionId}/messages`, {
     headers: { ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
   });
-  return handleResponse<ChatSession>(response);
+  return handleResponse(response);
 }
 
-/** DELETE /api/chat/session/:id */
-export async function deleteChatSession(sessionId: string): Promise<void> {
+/** POST /api/chat/sessions */
+export async function createSession(data: { title?: string; model_slug?: string }): Promise<{
+  id: string; user_id: string; title: string; model_slug: string | null;
+  created_at: string; updated_at: string;
+}> {
   const token = getToken();
-  const response = await fetch(`${API_BASE}/chat/session/${sessionId}`, {
+  const response = await fetch(`${API_BASE}/chat/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+}
+
+/** PATCH /api/chat/sessions/:id */
+export async function updateSessionTitle(sessionId: string, title: string): Promise<void> {
+  const token = getToken();
+  await fetch(`${API_BASE}/chat/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ title }),
+  });
+}
+
+/** DELETE /api/chat/sessions/:id */
+export async function deleteSession(sessionId: string): Promise<void> {
+  const token = getToken();
+  const response = await fetch(`${API_BASE}/chat/sessions/${sessionId}`, {
     method: "DELETE",
     headers: { ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
   });

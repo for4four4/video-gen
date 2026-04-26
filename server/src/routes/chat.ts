@@ -205,6 +205,25 @@ router.post('/image', authMiddleware, async (req: AuthRequest, res: Response) =>
       `UPDATE users SET generations_count = generations_count + 1 WHERE id = $1`, [userId]
     );
 
+    // Если передан sessionId — сохраняем в chat_sessions/chat_messages
+    if (req.body.sessionId) {
+      await pool.query(
+        `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent, result_url)
+         VALUES ($1,$2,'user',$3,$4,0,$5)`,
+        [req.body.sessionId, userId, prompt, actualModel, polzaResult.imageUrl]
+      );
+      await pool.query(
+        `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent, result_url)
+         VALUES ($1,$2,'assistant',$3,$4,$5,$6)`,
+        [req.body.sessionId, userId, 'Готово!', actualModel, actualCost, polzaResult.imageUrl]
+      );
+      await pool.query(
+        `UPDATE chat_sessions SET title=COALESCE((SELECT prompt FROM chat_messages WHERE session_id=$1 AND role='user' ORDER BY created_at ASC LIMIT 1),$7),
+         updated_at=CURRENT_TIMESTAMP, model_slug=$8 WHERE id=$1`,
+        [req.body.sessionId, actualModel, prompt.slice(0, 40)]
+      );
+    }
+
     res.json({
       imageUrl: polzaResult.imageUrl,
       allImages: polzaResult.allImages || [polzaResult.imageUrl],
@@ -300,6 +319,25 @@ router.post('/video', authMiddleware, async (req: AuthRequest, res: Response) =>
     await pool.query(
       `UPDATE users SET generations_count = generations_count + 1 WHERE id = $1`, [userId]
     );
+
+    // Если передан sessionId — сохраняем в chat_messages
+    if (req.body.sessionId) {
+      await pool.query(
+        `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent, result_url)
+         VALUES ($1,$2,'user',$3,$4,0,$5)`,
+        [req.body.sessionId, userId, prompt, actualModel, polzaResult.videoUrl]
+      );
+      await pool.query(
+        `INSERT INTO chat_messages (session_id, user_id, role, content, model_slug, points_spent, result_url)
+         VALUES ($1,$2,'assistant',$3,$4,$5,$6)`,
+        [req.body.sessionId, userId, 'Готово!', actualModel, actualCost, polzaResult.videoUrl]
+      );
+      await pool.query(
+        `UPDATE chat_sessions SET title=COALESCE((SELECT prompt FROM chat_messages WHERE session_id=$1 AND role='user' ORDER BY created_at ASC LIMIT 1),$7),
+         updated_at=CURRENT_TIMESTAMP, model_slug=$8 WHERE id=$1`,
+        [req.body.sessionId, actualModel, prompt.slice(0, 40)]
+      );
+    }
 
     res.json({
       videoUrl: polzaResult.videoUrl,
