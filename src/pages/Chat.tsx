@@ -134,25 +134,23 @@ function getEditableParams(model: ChatModel | undefined): Array<{
 
 // ─── Model pill ───────────────────────────────────────────────────────────
 const ModelPill = ({ m, active, onClick }: { m: ChatModel; active: boolean; onClick: () => void }) => (
-  <button
-    onClick={onClick}
-    className="shrink-0 text-left transition-all"
-    style={{
-      padding: "10px 14px",
-      borderRadius: 12,
-      background: active ? "rgba(180,120,253,0.14)" : "rgba(255,255,255,0.04)",
-      border: `1px solid ${active ? "hsl(var(--accent))" : "hsl(var(--border))"}`,
-    }}
-  >
+  <button onClick={onClick} className="shrink-0 text-left transition-all" style={{
+    padding: "10px 14px",
+    borderRadius: 12,
+    background: active ? "rgba(180,120,253,0.14)" : "rgba(255,255,255,0.04)",
+    border: `1px solid ${active ? "hsl(var(--accent))" : "hsl(var(--border))"}`,
+  }}>
     <div className="flex items-center gap-2.5">
-      <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0" style={{
-        background: active ? "rgba(180,120,253,0.2)" : "rgba(255,255,255,0.06)",
-      }}>
-        {m.type === "video"
-          ? <Video className="w-3.5 h-3.5" style={{ color: active ? "hsl(var(--accent))" : "rgba(250,250,250,0.5)" }} />
-          : <ImageIcon className="w-3.5 h-3.5" style={{ color: active ? "hsl(var(--accent))" : "rgba(250,250,250,0.5)" }} />
-        }
-      </div>
+      {m.iconUrl
+        ? <img src={m.iconUrl} alt="" className="w-7 h-7 rounded-md object-cover shrink-0" />
+        : <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0" style={{
+            background: active ? "rgba(180,120,253,0.2)" : "rgba(255,255,255,0.06)",
+          }}>
+            {m.type === "video"
+              ? <Video className="w-3.5 h-3.5" style={{ color: active ? "hsl(var(--accent))" : "rgba(250,250,250,0.5)" }} />
+              : <ImageIcon className="w-3.5 h-3.5" style={{ color: active ? "hsl(var(--accent))" : "rgba(250,250,250,0.5)" }} />}
+          </div>
+      }
       <div>
         <div className="text-[12px] font-medium leading-tight truncate max-w-[140px]">{m.name}</div>
         <div className="text-[10px] font-mono" style={{ color: active ? "hsl(var(--accent))" : "rgba(250,250,250,0.42)" }}>

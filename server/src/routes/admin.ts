@@ -122,7 +122,7 @@ router.get('/models', authMiddleware, adminMiddleware, async (req: AuthRequest, 
 // PATCH /api/admin/models/:slug — slug is URL-encoded to allow slashes
 router.patch('/models/:slug', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const slug = decodeURIComponent(req.params.slug);
+    const slug = decodeURIComponent(req.params.slug as string);
     const { coefficient, enabled, icon_url, cover_image } = req.body;
     const updates: string[] = [];
     const values: any[] = [];

@@ -61,10 +61,10 @@ const Index = () => {
       description: "Единый чат с десятками ИИ-моделей для генерации изображений и видео.",
     });
     document.head.appendChild(ld);
-    return () => { document.head.removeChild(ld); };
 
-    // Fetch models from DB for marquee
     getModels().then(m => setMarqueeModels(m.slice(0, 12))).catch(() => {});
+
+    return () => { document.head.removeChild(ld); };
   }, []);
 
   return (

@@ -39,6 +39,7 @@ export interface ChatModel {
   parameters: Record<string, ModelParameter>;
   /** Parsed pricing tiers */
   pricing?: any;
+  iconUrl?: string;
 }
 
 export interface ChatMessage {
@@ -122,6 +123,7 @@ export async function fetchChatModels(): Promise<ChatModel[]> {
       parameters_json: row.parameters_json || '{}',
       parameters,
       pricing,
+      iconUrl: row.icon_url,
     };
   });
 }

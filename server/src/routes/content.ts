@@ -123,9 +123,10 @@ router.get('/models', async (req: Request, res: Response) => {
 // GET /api/models/:slug/examples — примеры картинок модели
 router.get('/models/:slug/examples', async (req: Request, res: Response) => {
   try {
+    const slug = decodeURIComponent(req.params.slug as string);
     const result = await pool.query(
       `SELECT id, image_url, prompt FROM model_examples WHERE model_slug = $1 ORDER BY sort_order ASC`,
-      [req.params.slug]
+      [slug]
     );
     res.json(result.rows);
   } catch (error) {
@@ -345,9 +346,10 @@ router.delete('/admin/pricing/:id', authMiddleware, adminMiddleware, async (req:
 
 router.get('/admin/models/:slug/examples', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const slug = decodeURIComponent(req.params.slug as string);
     const result = await pool.query(
       `SELECT * FROM model_examples WHERE model_slug = $1 ORDER BY sort_order ASC`,
-      [req.params.slug]
+      [slug]
     );
     res.json(result.rows);
   } catch (error) {
@@ -360,9 +362,10 @@ router.post('/admin/models/:slug/examples', authMiddleware, adminMiddleware, asy
     const { image_url, prompt, sort_order } = req.body;
     if (!image_url) return res.status(400).json({ error: 'image_url required' });
 
+    const slug = decodeURIComponent(req.params.slug as string);
     const result = await pool.query(
       `INSERT INTO model_examples (model_slug, image_url, prompt, sort_order) VALUES ($1,$2,$3,$4) RETURNING *`,
-      [req.params.slug, image_url, prompt, sort_order || 0]
+      [slug, image_url, prompt, sort_order || 0]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {

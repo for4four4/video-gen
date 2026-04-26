@@ -114,7 +114,7 @@ export const getModels = (type?: 'image' | 'video', search?: string) => {
 };
 
 export const getModelExamples = (slug: string) =>
-  get<ModelExample[]>(`/models/${slug}/examples`);
+  get<ModelExample[]>(`/models/${encodeURIComponent(slug)}/examples`);
 
 // ── Admin API ─────────────────────────────────────────────────────────────────
 
@@ -153,8 +153,8 @@ export const adminUpdatePlan = (id: string, data: Partial<PricingPlan>) => admin
 export const adminDeletePlan = (id: string) => adminFetch(`/pricing/${id}`, 'DELETE');
 
 // Model examples admin
-export const adminGetModelExamples = (slug: string) => adminFetch(`/models/${slug}/examples`);
+export const adminGetModelExamples = (slug: string) => adminFetch(`/models/${encodeURIComponent(slug)}/examples`);
 export const adminAddModelExample = (slug: string, data: { image_url: string; prompt?: string; sort_order?: number }) =>
-  adminFetch(`/models/${slug}/examples`, 'POST', data);
+  adminFetch(`/models/${encodeURIComponent(slug)}/examples`, 'POST', data);
 export const adminUpdateModelExample = (id: string, data: any) => adminFetch(`/model-examples/${id}`, 'PATCH', data);
 export const adminDeleteModelExample = (id: string) => adminFetch(`/model-examples/${id}`, 'DELETE');

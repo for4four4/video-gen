@@ -108,7 +108,8 @@ router.get('/models', async (req: Request, res: Response) => {
               coefficient,
               ROUND(base_price_usd::numeric * coefficient::numeric) as price_points,
               description, short_description, featured, speed, popularity,
-              input_modalities, output_modalities, parameters_json
+              input_modalities, output_modalities, parameters_json,
+              icon_url
        FROM model_coefficients WHERE ${where}
        ORDER BY featured DESC NULLS LAST, popularity DESC NULLS LAST, name ASC`,
       values
