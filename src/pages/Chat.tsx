@@ -397,7 +397,10 @@ const Chat = () => {
         cost: result.cost,
       };
 
-      if (result.remainingBalance !== undefined) setBalance(result.remainingBalance);
+      if (result.remainingBalance !== undefined) {
+        setBalance(result.remainingBalance);
+        window.dispatchEvent(new CustomEvent("balance_updated"));
+      }
 
       if (usedSessionId) {
         try { await updateSessionTitle(usedSessionId, prompt.slice(0, 40)).catch(() => {}); } catch {}

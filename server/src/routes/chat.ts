@@ -433,6 +433,101 @@ router.post('/send', authMiddleware, async (req: AuthRequest, res: Response) => 
   }
 });
 
+// ── GET /api/chat/sessions ──────────────────────────────────────────────────────
+router.get('/sessions', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const result = await pool.query(
+      `SELECT s.id, s.title, s.model_slug, m.name as model_name,
+              s.created_at, s.updated_at,
+              (SELECT COUNT(*) FROM chat_messages cm WHERE cm.session_id = s.id)::int as message_count,
+              (SELECT cm.result_url FROM chat_messages cm WHERE cm.session_id = s.id AND cm.result_url IS NOT NULL ORDER BY cm.created_at DESC LIMIT 1) as last_image
+       FROM chat_sessions s
+       LEFT JOIN model_coefficients m ON s.model_slug = m.slug
+       WHERE s.user_id = $1
+       ORDER BY s.updated_at DESC
+       LIMIT 50`,
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (error: any) {
+    console.error('Get sessions error:', error.message);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ── POST /api/chat/sessions ────────────────────────────────────────────────────
+router.post('/sessions', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const { title, model_slug } = req.body;
+    const result = await pool.query(
+      `INSERT INTO chat_sessions (user_id, title, model_slug)
+       VALUES ($1, $2, $3)
+       RETURNING id, user_id, title, model_slug, created_at, updated_at`,
+      [userId, title || 'Новый чат', model_slug || null]
+    );
+    res.json(result.rows[0]);
+  } catch (error: any) {
+    console.error('Create session error:', error.message);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ── PATCH /api/chat/sessions/:id ───────────────────────────────────────────────
+router.patch('/sessions/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const { title } = req.body;
+    await pool.query(
+      `UPDATE chat_sessions SET title = $1 WHERE id = $2 AND user_id = $3`,
+      [title, req.params.id, userId]
+    );
+    res.json({ message: 'Updated' });
+  } catch (error: any) {
+    console.error('Update session error:', error.message);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ── DELETE /api/chat/sessions/:id ──────────────────────────────────────────────
+router.delete('/sessions/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    await pool.query(`DELETE FROM chat_sessions WHERE id = $1 AND user_id = $2`, [req.params.id, userId]);
+    res.json({ message: 'Deleted' });
+  } catch (error: any) {
+    console.error('Delete session error:', error.message);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+// ── GET /api/chat/sessions/:id/messages ────────────────────────────────────────
+router.get('/sessions/:id/messages', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    // Проверка что сессия принадлежит пользователю
+    const sessionCheck = await pool.query(
+      `SELECT id FROM chat_sessions WHERE id = $1 AND user_id = $2`,
+      [req.params.id, userId]
+    );
+    if (sessionCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    const result = await pool.query(
+      `SELECT cm.id, cm.role, cm.content, cm.result_url, cm.model_slug, cm.points_spent, cm.created_at
+       FROM chat_messages cm
+       WHERE cm.session_id = $1
+       ORDER BY cm.created_at ASC`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (error: any) {
+    console.error('Get messages error:', error.message);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
 // ── GET /api/chat/history ─────────────────────────────────────────────────────
 router.get('/history', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {

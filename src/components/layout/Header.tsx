@@ -10,6 +10,22 @@ const links = [
   { to: "/news", label: "Новости" },
 ];
 
+// Загрузка баланса через прокси — работает в любом окружении
+const fetchBalance = async (): Promise<number | null> => {
+  try {
+    const res = await fetch("/api/chat/balance", {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.balance;
+  } catch {
+    return null;
+  }
+};
+
 const Header = () => {
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -17,32 +33,45 @@ const Header = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const checkAuth = async () => {
-      setUser(authService.getCurrentUser());
+    if (!authService.isAuthenticated()) {
       setIsLoading(false);
-    };
-    checkAuth();
+      return;
+    }
 
-    const refreshBalance = async () => {
-      if (authService.isAuthenticated()) {
-        await authService.refreshUser();
-        setUser(authService.getCurrentUser());
+    // При загрузке — сразу читаем из localStorage, асинхронно обновляем с сервера
+    setUser(authService.getCurrentUser());
+
+    fetchBalance().then((bal) => {
+      setUser((prev) => {
+        if (prev && bal !== null) {
+          const updated = { ...prev, pointsBalance: bal };
+          localStorage.setItem("user", JSON.stringify(updated));
+          return updated;
+        }
+        return prev;
+      });
+      setIsLoading(false);
+    }).catch(() => {
+      setIsLoading(false);
+    });
+
+    // После генерации в чате — повторно запрашиваем баланс
+    const onBalanceUpdated = async () => {
+      const bal = await fetchBalance();
+      if (bal !== null) {
+        setUser((prev) => {
+          if (prev) {
+            const updated = { ...prev, pointsBalance: bal };
+            localStorage.setItem("user", JSON.stringify(updated));
+            return updated;
+          }
+          return prev;
+        });
       }
     };
 
-    // Обновляем баланс по кастомному событию (после генерации)
-    window.addEventListener("balance_updated", refreshBalance);
-
-    const handler = (e: StorageEvent) => {
-      if (e.key === "token" || e.key === "user") {
-        setUser(authService.getCurrentUser());
-      }
-    };
-    window.addEventListener("storage", handler);
-    return () => {
-      window.removeEventListener("storage", handler);
-      window.removeEventListener("balance_updated", refreshBalance);
-    };
+    window.addEventListener("balance_updated", onBalanceUpdated);
+    return () => window.removeEventListener("balance_updated", onBalanceUpdated);
   }, []);
 
   if (isLoading) return null;
@@ -66,7 +95,6 @@ const Header = () => {
         }}
       >
         <div className="max-w-[1320px] mx-auto h-14 px-6 flex items-center justify-between">
-
           {/* ── Logo ── */}
           <Link to="/" className="flex items-center gap-2">
             <img src={logoSvg} alt="Imagination-ai" className="w-9 h-9 shrink-0" />
