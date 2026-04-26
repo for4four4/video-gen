@@ -16,7 +16,7 @@ import {
   type ModelParameter,
 } from "@/lib/chatApi";
 import { toast } from "sonner";
-import { Loader2, Plus, Search, Image as ImageIcon, Video, ChevronDown } from "lucide-react";
+import { Loader2, Plus, Search, Image as ImageIcon, Video, Trash2 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 type Msg = {
@@ -290,6 +290,20 @@ const Chat = () => {
     setSessions((c) => c.map((s) => s.id === activeId ? { ...s, ...patch, updatedAt: Date.now() } : s));
   };
 
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Удалить этот чат?")) return;
+    try {
+      await deleteSession(sessionId).catch(() => {});
+      setSessions((c) => c.filter((s) => s.id !== sessionId));
+      if (activeId === sessionId) {
+        setActiveId("");
+      }
+    } catch {
+      toast.error("Ошибка удаления чата");
+    }
+  };
+
   // Build param summary string for message display
   const buildParamsSummary = (): string => {
     const parts: string[] = [];
@@ -447,13 +461,22 @@ const Chat = () => {
 
             <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
               {filteredSessions.map((s) => (
-                <button key={s.id} onClick={() => setActiveId(s.id)} className="w-full text-left px-2 py-2 rounded-md flex gap-2.5 items-center transition-colors" style={{ background: s.id === activeId ? "rgba(180,120,253,0.1)" : "transparent" }}>
-                  <Placeholder seed={s.id} aspect="1/1" className="w-10 h-10 rounded-md shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[12px] truncate">{s.title}</div>
-                    <div className="text-[10px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>{new Date(s.updatedAt).toLocaleDateString("ru")}</div>
-                  </div>
-                </button>
+                <div key={s.id} className="group relative flex items-center gap-1 rounded-md pr-1 transition-colors" style={{ background: s.id === activeId ? "rgba(180,120,253,0.1)" : "transparent" }}>
+                  <button onClick={() => setActiveId(s.id)} className="w-full text-left px-2 py-2 rounded-md flex gap-2.5 items-center">
+                    <Placeholder seed={s.id} aspect="1/1" className="w-10 h-10 rounded-md shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] truncate">{s.title}</div>
+                      <div className="text-[10px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>{new Date(s.updatedAt).toLocaleDateString("ru")}</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteSession(s.id, e)}
+                    className="shrink-0 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/10"
+                    aria-label="Удалить чат"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" style={{ color: "rgba(250,250,250,0.42)" }} />
+                  </button>
+                </div>
               ))}
             </div>
 

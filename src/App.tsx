@@ -11,7 +11,7 @@ import { NewsList, NewsItem } from "./pages/News.tsx";
 import { Login, Signup } from "./pages/Auth.tsx";
 import { ForgotPassword, ResetPassword } from "./pages/ForgotPassword.tsx";
 import Chat from "./pages/Chat.tsx";
-import Dashboard from "./pages/Dashboard.tsx";
+import Personal from "./pages/Personal.tsx";
 import Admin from "./pages/Admin.tsx";
 import PricingPage from "./pages/PricingPage.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
@@ -47,7 +47,7 @@ const App = () => (
 
           {/* Защищённые роуты — только для авторизованных */}
           <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/personal" element={<ProtectedRoute><Personal /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
 
           <Route path="*" element={<NotFound />} />
