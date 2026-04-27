@@ -1,11 +1,87 @@
 import SiteLayout from "@/components/layout/SiteLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Coins, Image as ImageIcon, Loader2, Video, Calendar } from "lucide-react";
+import { Coins, Image as ImageIcon, Loader2, Video, Calendar, Download, X, Maximize2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { fetchUserBalance, fetchGenerationHistory, type GenerationHistoryItem } from "@/lib/chatApi";
+
+/* ── Fullscreen media modal ────────────────────────────────────────────── */
+const MediaModal = ({
+  url,
+  isVideo,
+  onClose,
+}: {
+  url: string;
+  isVideo: boolean;
+  onClose: () => void;
+}) => {
+  const handleDownload = async () => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const ext = isVideo ? "mp4" : url.split(".").pop()?.split("?")[0] || "png";
+      a.download = `imagination-${Date.now()}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch {
+      toast.error("Ошибка скачивания");
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="relative w-[95vw] h-[92vh] flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10"
+          style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        {/* Download */}
+        <button
+          onClick={handleDownload}
+          className="absolute top-3 right-16 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10"
+          style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+        >
+          <Download className="w-5 h-5" />
+        </button>
+
+        {isVideo ? (
+          <video
+            src={url}
+            controls
+            autoPlay
+            className="max-w-full max-h-full rounded-lg"
+            style={{ objectFit: "contain" }}
+          />
+        ) : (
+          <img
+            src={url}
+            alt="Generated"
+            className="max-w-full max-h-full rounded-lg"
+            style={{ objectFit: "contain" }}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
 
 const Personal = () => {
   useEffect(() => { document.title = "Личный кабинет — Imagination AI"; }, []);
@@ -13,6 +89,8 @@ const Personal = () => {
   const [balance, setBalance] = useState<number | null>(null);
   const [history, setHistory] = useState<GenerationHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [modalUrl, setModalUrl] = useState<string | null>(null);
+  const [modalIsVideo, setModalIsVideo] = useState(false);
 
   useEffect(() => {
     fetchUserBalance()
@@ -27,8 +105,39 @@ const Personal = () => {
 
   const isVideoUrl = (url?: string) => url ? /\.(mp4|webm|mov)(\?|$)/i.test(url) : false;
 
+  const openModal = (url: string) => {
+    const isVid = isVideoUrl(url);
+    setModalUrl(url);
+    setModalIsVideo(isVid);
+  };
+
+  const handleDownload = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const ext = isVideoUrl(url) ? "mp4" : url.split(".").pop()?.split("?")[0] || "png";
+      a.download = `imagination-${Date.now()}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch {
+      toast.error("Ошибка скачивания");
+    }
+  };
+
   return (
     <SiteLayout>
+      {modalUrl && (
+        <MediaModal
+          url={modalUrl}
+          isVideo={modalIsVideo}
+          onClose={() => setModalUrl(null)}
+        />
+      )}
+
       <section className="py-12">
         <div className="container max-w-5xl">
           <h1 className="font-display text-4xl md:text-5xl mb-2">Личный кабинет</h1>
@@ -111,9 +220,10 @@ const Personal = () => {
                       isVideoUrl(item.resultUrl) ? (
                         <video
                           src={item.resultUrl}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover cursor-pointer"
                           muted
                           playsInline
+                          onClick={() => openModal(item.resultUrl!)}
                           onMouseEnter={e => (e.target as HTMLVideoElement).play()}
                           onMouseLeave={e => { const v = e.target as HTMLVideoElement; v.pause(); v.currentTime = 0; }}
                         />
@@ -121,7 +231,8 @@ const Personal = () => {
                         <img
                           src={item.resultUrl}
                           alt={item.prompt}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover cursor-pointer"
+                          onClick={() => openModal(item.resultUrl!)}
                           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
                         />
                       )
@@ -149,6 +260,29 @@ const Personal = () => {
                           {item.cost} пт
                         </div>
                       )}
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-1.5 mt-2">
+                        {item.resultUrl && (
+                          <>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openModal(item.resultUrl!); }}
+                              className="flex items-center gap-1 text-[9px] px-2 py-1 rounded transition-colors hover:bg-white/15"
+                              style={{ background: "rgba(255,255,255,0.1)", color: "#fff" }}
+                            >
+                              <Maximize2 className="w-2.5 h-2.5" />
+                              Открыть
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDownload(item.resultUrl!); }}
+                              className="flex items-center gap-1 text-[9px] px-2 py-1 rounded transition-colors hover:bg-white/15"
+                              style={{ background: "rgba(255,255,255,0.1)", color: "#fff" }}
+                            >
+                              <Download className="w-2.5 h-2.5" />
+                              Скачать
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}

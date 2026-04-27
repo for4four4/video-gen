@@ -82,6 +82,7 @@ const Header = () => {
   };
 
   const isChatPage = location.pathname === "/chat";
+  const isPersonalPage = location.pathname === "/personal";
 
   return (
     <header className="fixed top-0 inset-x-0 z-50">
@@ -143,6 +144,20 @@ const Header = () => {
                     {user.pointsBalance} пт
                   </span>
                 </div>
+
+                {/* Личный кабинет */}
+                {!isPersonalPage && (
+                  <Link
+                    to="/personal"
+                    className="text-[12px] px-3 py-1.5 rounded-md transition-colors"
+                    style={{
+                      color: "hsl(var(--muted-foreground))",
+                      border: "1px solid hsl(var(--border))",
+                    }}
+                  >
+                    Личный кабинет
+                  </Link>
+                )}
 
                 {!isChatPage && (
                   <Link
@@ -257,6 +272,16 @@ const Header = () => {
                       {user.pointsBalance} пт
                     </span>
                   </div>
+                  {!isPersonalPage && (
+                    <Link
+                      to="/personal"
+                      onClick={() => setOpen(false)}
+                      className="text-center text-[12px] py-2.5 rounded-md"
+                      style={{ border: "1px solid hsl(var(--border))", color: "hsl(var(--foreground))" }}
+                    >
+                      Личный кабинет
+                    </Link>
+                  )}
                   {!isChatPage && (
                     <Link
                       to="/chat"

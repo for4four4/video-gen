@@ -16,7 +16,8 @@ import {
   type ModelParameter,
 } from "@/lib/chatApi";
 import { toast } from "sonner";
-import { Loader2, Plus, Search, Image as ImageIcon, Video, Trash2, Paperclip, X } from "lucide-react";
+import { Loader2, Plus, Search, Image as ImageIcon, Video, Trash2, Paperclip, X, Download, Maximize2 } from "lucide-react";
+import logoSvg from "@/assets/logo.svg";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 type Msg = {
@@ -136,6 +137,121 @@ function getEditableParams(model: ChatModel | undefined): Array<{
   return result;
 }
 
+// ─── Helper: determine what files a model accepts ─────────────────────────
+function getModelAcceptedFiles(model: ChatModel | undefined): { accepts: "none" | "image" | "video" | "both"; acceptStr: string } {
+  if (!model) return { accepts: "none", acceptStr: "" };
+
+  // Check input_modalities
+  let inputMods: string[] = [];
+  try {
+    if (typeof model.input_modalities === "string") {
+      // Could be JSON array string or comma-separated
+      if (model.input_modalities.startsWith("[")) {
+        inputMods = JSON.parse(model.input_modalities);
+      } else {
+        inputMods = model.input_modalities.split(",").map(s => s.trim().toLowerCase());
+      }
+    } else if (Array.isArray(model.input_modalities)) {
+      inputMods = (model.input_modalities as string[]).map(s => s.toLowerCase());
+    }
+  } catch {
+    inputMods = [];
+  }
+
+  // Also check model parameters for "images" or "videos" keys
+  const params = model.parameters || {};
+  const hasImagesParam = "images" in params;
+  const hasVideosParam = "videos" in params;
+
+  const acceptsImage = inputMods.some(m => m.includes("image")) || hasImagesParam;
+  const acceptsVideo = inputMods.some(m => m.includes("video")) || hasVideosParam;
+
+  if (acceptsImage && acceptsVideo) return { accepts: "both", acceptStr: "image/*,video/*" };
+  if (acceptsImage) return { accepts: "image", acceptStr: "image/*" };
+  if (acceptsVideo) return { accepts: "video", acceptStr: "video/*" };
+  return { accepts: "none", acceptStr: "" };
+}
+
+// ─── Fullscreen media modal ──────────────────────────────────────────────
+const MediaModal = ({
+  url,
+  isVideo,
+  onClose,
+}: {
+  url: string;
+  isVideo: boolean;
+  onClose: () => void;
+}) => {
+  const handleDownload = async () => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const ext = isVideo ? "mp4" : url.split(".").pop()?.split("?")[0] || "png";
+      a.download = `imagination-${Date.now()}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch {
+      toast.error("Ошибка скачивания");
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="relative w-[95vw] h-[92vh] flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10"
+          style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+        >
+          <X className="w-5 h-5" />
+        </button>
+        <button
+          onClick={handleDownload}
+          className="absolute top-3 right-16 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10"
+          style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+        >
+          <Download className="w-5 h-5" />
+        </button>
+        {isVideo ? (
+          <video src={url} controls autoPlay className="max-w-full max-h-full rounded-lg" style={{ objectFit: "contain" }} />
+        ) : (
+          <img src={url} alt="Generated" className="max-w-full max-h-full rounded-lg" style={{ objectFit: "contain" }} />
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Download helper ──────────────────────────────────────────────────────
+const handleDownloadFile = async (url: string) => {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const isVid = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+    const ext = isVid ? "mp4" : url.split(".").pop()?.split("?")[0] || "png";
+    a.download = `imagination-${Date.now()}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  } catch {
+    toast.error("Ошибка скачивания");
+  }
+};
+
 // ─── Model pill ───────────────────────────────────────────────────────────
 const ModelPill = ({ m, active, onClick }: { m: ChatModel; active: boolean; onClick: () => void }) => (
   <button onClick={onClick} className="shrink-0 text-left transition-all" style={{
@@ -186,13 +302,38 @@ const Chat = () => {
   const [refPreview, setRefPreview] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelScrollRef = useRef<HTMLDivElement>(null);
+
+  // Modal state
+  const [modalUrl, setModalUrl] = useState<string | null>(null);
+  const [modalIsVideo, setModalIsVideo] = useState(false);
 
   const model = models.find((m) => m.slug === activeModelSlug);
   const active = sessions.find((s) => s.id === activeId);
 
+  // Determine what files the current model accepts
+  const modelFileAccept = useMemo(() => getModelAcceptedFiles(model), [model]);
+
+  const openMediaModal = (url: string) => {
+    const isVid = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+    setModalUrl(url);
+    setModalIsVideo(isVid);
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Validate file type against model capabilities
+    if (modelFileAccept.accepts === "image" && !file.type.startsWith("image/")) {
+      toast.error("Эта модель принимает только изображения");
+      return;
+    }
+    if (modelFileAccept.accepts === "video" && !file.type.startsWith("video/")) {
+      toast.error("Эта модель принимает только видео");
+      return;
+    }
+
     if (refPreview) URL.revokeObjectURL(refPreview);
     setRefFile(file);
     setRefPreview(URL.createObjectURL(file));
@@ -212,6 +353,68 @@ const Chat = () => {
   useEffect(() => {
     return () => { if (refPreview) URL.revokeObjectURL(refPreview); };
   }, []);
+
+  // Mouse drag scroll for model picker
+  useEffect(() => {
+    const el = modelScrollRef.current;
+    if (!el) return;
+
+    let isDown = false;
+    let startX = 0;
+    let scrollLeft = 0;
+
+    const onMouseDown = (e: MouseEvent) => {
+      isDown = true;
+      el.style.cursor = "grabbing";
+      el.style.userSelect = "none";
+      startX = e.pageX - el.offsetLeft;
+      scrollLeft = el.scrollLeft;
+    };
+
+    const onMouseLeave = () => {
+      isDown = false;
+      el.style.cursor = "grab";
+      el.style.userSelect = "";
+    };
+
+    const onMouseUp = () => {
+      isDown = false;
+      el.style.cursor = "grab";
+      el.style.userSelect = "";
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - el.offsetLeft;
+      const walk = (x - startX) * 1.5;
+      el.scrollLeft = scrollLeft - walk;
+    };
+
+    // Horizontal wheel scroll
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) > 0) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+
+    el.addEventListener("mousedown", onMouseDown);
+    el.addEventListener("mouseleave", onMouseLeave);
+    el.addEventListener("mouseup", onMouseUp);
+    el.addEventListener("mousemove", onMouseMove);
+    el.addEventListener("wheel", onWheel, { passive: false });
+
+    el.style.cursor = "grab";
+
+    return () => {
+      el.removeEventListener("mousedown", onMouseDown);
+      el.removeEventListener("mouseleave", onMouseLeave);
+      el.removeEventListener("mouseup", onMouseUp);
+      el.removeEventListener("mousemove", onMouseMove);
+      el.removeEventListener("wheel", onWheel);
+    };
+  }, [models]);
 
   // Build editable params from current model
   const editableParams = useMemo(() => getEditableParams(model), [model]);
@@ -472,6 +675,15 @@ const Chat = () => {
 
   return (
     <SiteLayout>
+      {/* Fullscreen modal */}
+      {modalUrl && (
+        <MediaModal
+          url={modalUrl}
+          isVideo={modalIsVideo}
+          onClose={() => setModalUrl(null)}
+        />
+      )}
+
       <div className="max-w-[1320px] mx-auto px-4 pb-4 pt-20" style={{ height: "calc(100vh - 64px)" }}>
         <div
           className="grid gap-4 h-full overflow-hidden"
@@ -498,7 +710,7 @@ const Chat = () => {
               {filteredSessions.map((s) => (
                 <div key={s.id} className="group relative flex items-center gap-1 rounded-md pr-1 transition-colors" style={{ background: s.id === activeId ? "rgba(180,120,253,0.1)" : "transparent" }}>
                   <button onClick={() => setActiveId(s.id)} className="w-full text-left px-2 py-2 rounded-md flex gap-2.5 items-center">
-                    <Placeholder seed={s.id} aspect="1/1" className="w-10 h-10 rounded-md shrink-0" />
+                    {/* No image — just text */}
                     <div className="min-w-0 flex-1">
                       <div className="text-[12px] truncate">{s.title}</div>
                       <div className="text-[10px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>{new Date(s.updatedAt).toLocaleDateString("ru")}</div>
@@ -523,14 +735,14 @@ const Chat = () => {
                   <span className="font-display text-[24px]">{balance}</span>
                   <span className="text-[11px]" style={{ color: "hsl(var(--muted-foreground))" }}>пт</span>
                 </div>
-                <Link to="/dashboard" className="block w-full mt-2 text-[11px] py-1.5 rounded text-center transition-colors hover:bg-white/10" style={{ background: "rgba(255,255,255,0.08)", color: "hsl(var(--foreground))" }}>Пополнить</Link>
+                <Link to="/personal" className="block w-full mt-2 text-[11px] py-1.5 rounded text-center transition-colors hover:bg-white/10" style={{ background: "rgba(255,255,255,0.08)", color: "hsl(var(--foreground))" }}>Пополнить</Link>
               </div>
             </div>
           </aside>
 
           {/* ── CENTER: Conversation ── */}
           <main className="rounded-[18px] overflow-hidden flex flex-col" style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
-            {/* Model picker */}
+            {/* Model picker with mouse drag scroll */}
             <div className="p-4" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-[10px] uppercase tracking-widest" style={{ color: "rgba(250,250,250,0.42)" }}>Модель</span>
@@ -546,7 +758,11 @@ const Chat = () => {
                   ))}
                 </div>
               </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div
+                ref={modelScrollRef}
+                className="flex gap-2 overflow-x-auto pb-1"
+                style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+              >
                 {filteredModels.map((m) => (
                   <ModelPill key={m.slug} m={m} active={activeModelSlug === m.slug} onClick={() => setActiveModelSlug(m.slug)} />
                 ))}
@@ -554,26 +770,79 @@ const Chat = () => {
                   <p className="text-[12px] py-2" style={{ color: "rgba(250,250,250,0.42)" }}>Нет доступных моделей</p>
                 )}
               </div>
+              {/* Hide scrollbar with CSS */}
+              <style>{`
+                div[class*="overflow-x-auto"]::-webkit-scrollbar { display: none; }
+              `}</style>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Messages — 1rem top/bottom padding */}
+            <div className="flex-1 overflow-y-auto px-6 space-y-6" style={{ paddingTop: "1rem", paddingBottom: "1rem" }}>
               {active?.messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                   {msg.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-full shrink-0 mr-3" style={{ background: "conic-gradient(from 120deg, #b478fd, #ff6ba9, #6adfff, #b478fd)" }} />
+                    <img src={logoSvg} alt="AI" className="w-8 h-8 rounded-full shrink-0 mr-3 object-contain" />
                   )}
                   <div className={`max-w-[70%] rounded-[14px] ${msg.role === "user" ? "rounded-tr-sm" : "rounded-tl-sm"} overflow-hidden`} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid hsl(var(--border))" }}>
                     {/* Image result */}
                     {msg.image && (
-                      <div className="p-1.5">
-                        <img src={msg.image} alt="Generated" className="rounded-lg w-full max-w-md" style={{ aspectRatio: "auto" }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      <div className="p-1.5 relative group/media">
+                        <img
+                          src={msg.image}
+                          alt="Generated"
+                          className="rounded-lg w-full max-w-md cursor-pointer"
+                          style={{ aspectRatio: "auto" }}
+                          onClick={() => openMediaModal(msg.image!)}
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                        {/* Image overlay buttons */}
+                        <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover/media:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => openMediaModal(msg.image!)}
+                            className="w-8 h-8 rounded-full flex items-center justify-center"
+                            style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDownloadFile(msg.image!)}
+                            className="w-8 h-8 rounded-full flex items-center justify-center"
+                            style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     )}
                     {/* Video result */}
                     {msg.video && (
-                      <div className="p-1.5">
-                        <video src={msg.video} controls className="rounded-lg w-full max-w-md" />
+                      <div className="p-1.5 relative group/media">
+                        <video
+                          src={msg.video}
+                          controls
+                          className="rounded-lg w-full max-w-md cursor-pointer"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            openMediaModal(msg.video!);
+                          }}
+                        />
+                        {/* Video overlay buttons */}
+                        <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover/media:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => openMediaModal(msg.video!)}
+                            className="w-8 h-8 rounded-full flex items-center justify-center"
+                            style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDownloadFile(msg.video!)}
+                            className="w-8 h-8 rounded-full flex items-center justify-center"
+                            style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff" }}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     )}
                     <div className="px-4 py-3">
@@ -603,7 +872,7 @@ const Chat = () => {
 
               {loadingSessionId === activeId && loadingSessionId !== null && (
                 <div className="flex gap-3">
-                  <div className="w-8 h-8 rounded-full shrink-0" style={{ background: "conic-gradient(from 120deg, #b478fd, #ff6ba9, #6adfff, #b478fd)" }} />
+                  <img src={logoSvg} alt="AI" className="w-8 h-8 rounded-full shrink-0 object-contain" />
                   <div className="rounded-[14px] rounded-tl-sm px-4 py-3 flex items-center gap-2" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid hsl(var(--border))" }}>
                     <div className="flex gap-1">
                       {[0, 1, 2].map((i) => (
@@ -634,17 +903,35 @@ const Chat = () => {
                   </div>
                 )}
                 <div className="flex items-center gap-2 mb-2">
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
-                    title="Прикрепить файл"
-                    style={{
-                      background: refFile ? "rgba(180,120,253,0.15)" : "rgba(255,255,255,0.06)",
-                      border: `1px solid ${refFile ? "rgba(180,120,253,0.4)" : "hsl(var(--border))"}`,
-                    }}
-                  >
-                    {refFile ? <Paperclip className="w-3.5 h-3.5" style={{ color: "hsl(var(--accent))" }} /> : <span className="text-[14px]">+</span>}
-                  </button>
+                  {/* Only show attach button if model accepts files */}
+                  {modelFileAccept.accepts !== "none" && (
+                    <>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept={modelFileAccept.acceptStr}
+                        className="sr-only"
+                        onChange={handleFileSelect}
+                      />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
+                        title={
+                          modelFileAccept.accepts === "video"
+                            ? "Прикрепить видео"
+                            : modelFileAccept.accepts === "image"
+                            ? "Прикрепить изображение"
+                            : "Прикрепить файл"
+                        }
+                        style={{
+                          background: refFile ? "rgba(180,120,253,0.15)" : "rgba(255,255,255,0.06)",
+                          border: `1px solid ${refFile ? "rgba(180,120,253,0.4)" : "hsl(var(--border))"}`,
+                        }}
+                      >
+                        {refFile ? <Paperclip className="w-3.5 h-3.5" style={{ color: "hsl(var(--accent))" }} /> : <span className="text-[14px]">+</span>}
+                      </button>
+                    </>
+                  )}
                   <div className="flex items-center gap-1 text-[10px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>
                     <span className="px-1.5 py-0.5 rounded" style={{ background: "rgba(180,120,253,0.12)", color: "hsl(var(--accent))" }}>
                       {model?.type === "video" ? "/video" : "/imagine"}
@@ -680,16 +967,23 @@ const Chat = () => {
 
           {/* ── RIGHT SIDEBAR: Настройки (динамические!) ── */}
           <aside className="rounded-[18px] overflow-hidden flex flex-col" style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}>
-            {/* Model header */}
+            {/* Header with model info + icon */}
             <div className="p-4" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
-              <div className="text-[10px] uppercase tracking-widest mb-2" style={{ color: "rgba(250,250,250,0.42)" }}>Настройки генерации</div>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0" style={{ background: model?.type === "video" ? "rgba(106,223,255,0.1)" : "rgba(180,120,253,0.1)" }}>
-                  {model?.type === "video"
-                    ? <Video className="w-5 h-5" style={{ color: "rgba(106,223,255,0.8)" }} />
-                    : <ImageIcon className="w-5 h-5" style={{ color: "rgba(180,120,253,0.8)" }} />
-                  }
-                </div>
+              <div className="text-[10px] uppercase tracking-widest mb-3" style={{ color: "rgba(250,250,250,0.42)" }}>Настройки генерации</div>
+              <div className="flex items-center gap-3">
+                {/* Model icon */}
+                {model?.iconUrl ? (
+                  <img src={model.iconUrl} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                ) : (
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{
+                    background: model?.type === "video" ? "rgba(106,223,255,0.1)" : "rgba(180,120,253,0.1)",
+                  }}>
+                    {model?.type === "video"
+                      ? <Video className="w-5 h-5" style={{ color: "rgba(106,223,255,0.8)" }} />
+                      : <ImageIcon className="w-5 h-5" style={{ color: "rgba(180,120,253,0.8)" }} />
+                    }
+                  </div>
+                )}
                 <div className="min-w-0">
                   <div className="text-[13px] font-medium truncate">{model?.name || "—"}</div>
                   <div className="text-[10px] font-mono truncate" style={{ color: "rgba(250,250,250,0.42)" }}>{model?.vendor || ""}</div>
@@ -774,73 +1068,46 @@ const Chat = () => {
                 </div>
               )}
 
-              {/* File upload */}
-              {model && (
+              {/* File upload — only if model accepts files */}
+              {model && modelFileAccept.accepts !== "none" && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: "rgba(250,250,250,0.42)" }}>Опорное изображение</div>
+                  <div className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: "rgba(250,250,250,0.42)" }}>
+                    {modelFileAccept.accepts === "video" ? "Опорное видео" : modelFileAccept.accepts === "image" ? "Опорное изображение" : "Опорный файл"}
+                  </div>
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*,video/*"
+                    accept={modelFileAccept.acceptStr}
                     className="sr-only"
                     onChange={handleFileSelect}
                   />
                   {refPreview ? (
                     <div className="relative rounded-md overflow-hidden" style={{ aspectRatio: "16/9" }}>
                       {refFile?.type.startsWith('video/') ? (
-                        <video src={refPreview} className="w-full h-full object-cover" muted playsInline />
+                        <video src={refPreview} className="w-full h-full object-cover" muted />
                       ) : (
-                        <img src={refPreview} alt="Превью" className="w-full h-full object-cover" />
+                        <img src={refPreview} alt="Reference" className="w-full h-full object-cover" />
                       )}
                       <button
                         onClick={clearRefFile}
                         className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center"
-                        style={{ background: "rgba(0,0,0,0.7)", color: "white" }}
+                        style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="w-3 h-3" />
                       </button>
-                      <div className="absolute bottom-1.5 left-1.5 text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: "rgba(0,0,0,0.6)", color: "rgba(255,255,255,0.7)" }}>
-                        {refFile?.name}
-                      </div>
                     </div>
                   ) : (
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full rounded-md flex flex-col items-center justify-center gap-1.5 text-[11px] transition-all hover:border-accent/40"
-                      style={{ aspectRatio: "16/9", background: "rgba(0,0,0,0.3)", border: "1px dashed rgba(255,255,255,0.14)", color: "rgba(250,250,250,0.42)" }}
+                      className="w-full py-6 rounded-md flex flex-col items-center gap-2 transition-all hover:border-accent/50"
+                      style={{ border: "1px dashed rgba(255,255,255,0.15)", background: "rgba(0,0,0,0.2)" }}
                     >
-                      <Paperclip className="w-4 h-4 opacity-50" />
-                      <span>прикрепить файл</span>
-                      <span className="text-[9px] opacity-50">изображение или видео</span>
+                      <Paperclip className="w-4 h-4" style={{ color: "rgba(250,250,250,0.42)" }} />
+                      <span className="text-[11px]" style={{ color: "rgba(250,250,250,0.42)" }}>
+                        {modelFileAccept.accepts === "video" ? "Загрузить видео" : modelFileAccept.accepts === "image" ? "Загрузить изображение" : "Загрузить файл"}
+                      </span>
                     </button>
                   )}
-                </div>
-              )}
-            </div>
-
-            {/* Cost footer */}
-            <div className="p-4" style={{ borderTop: "1px solid hsl(var(--border))" }}>
-              <div className="flex items-center justify-between text-[11px] mb-2">
-                <span style={{ color: "hsl(var(--muted-foreground))" }}>Стоимость</span>
-                <span className="font-mono text-[16px]" style={{ color: "hsl(var(--accent))" }}>
-                  ~{model?.price_points || 0} пт
-                </span>
-              </div>
-              <div className="text-[10px] font-mono" style={{ color: "rgba(250,250,250,0.42)" }}>
-                {model?.base_price_rub?.toFixed(1) || 0} ₽ × {model?.coefficient || 1.5}
-              </div>
-              {/* Active settings summary */}
-              {editableParams.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {editableParams.map(p => {
-                    const val = settings[p.key];
-                    if (!val) return null;
-                    return (
-                      <span key={p.key} className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: "rgba(255,255,255,0.04)", color: "rgba(250,250,250,0.5)" }}>
-                        {p.label}: {val}
-                      </span>
-                    );
-                  })}
                 </div>
               )}
             </div>
